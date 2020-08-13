@@ -43,7 +43,7 @@
 // You can change these to give your code its own name.  On Windows,
 // these are only used before an INF file (driver install) is loaded.
 #define STR_MANUFACTURER	L"judges"
-#define STR_PRODUCT		L"NORway PS3 Flasher USB Serial"
+#define STR_PRODUCT		L"SYSCON SPI PS3 Flasher USB Serial"
 
 // All USB serial devices are supposed to have a serial number
 // (according to Microsoft).  On windows, a new COM port is created
