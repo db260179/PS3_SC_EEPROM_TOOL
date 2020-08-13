@@ -258,6 +258,7 @@ if __name__ == "__main__":
 	VERSION_MINOR = 1
 
 	print "FAT PS3 Syscon EEPROM utility by WildCard"
+	print "Modified by DjbMister to be linux friendly"
 	print "Based on SPIway from PS3 developer judges <judges@eEcho.com>"
 	print "Just a simple tool to make dumping/writing to syscon eeprom easier"
 	print
@@ -267,15 +268,15 @@ if __name__ == "__main__":
 		print "		dump: dumps eeprom (0x8000) in size to filename"
 		print "		status: gets eeprom status, 0xffffffff if all is OK"
 		print "		writefile: writes up to 0x3fff bytes from binary file to eeprom"
-		print "					sc_eeprom_tool.py COM1 writefile <filename> <offset> <size>"
+		print "					sc_eeprom_tool.py /dev/ttyACM0 writefile <filename> <offset> <size>"
 		print "		writedata: writes up to 0x3fff bytes from cmdline to eeprom"
-		print "					sc_eeprom_tool.py COM1 writedata <data> <offset>"
+		print "					sc_eeprom_tool.py /dev/ttyACM0 writedata <data> <offset>"
 		print "		unlock: unlocks eeprom for writing"
 		print "Examples:"
-		print "  sc_eeprom_tool.py COM1 dump ./myeeprom.bin"
-		print "  sc_eeprom_tool.py COM1 status"
-		print "  sc_eeprom_tool.py COM1 writefile dump.bin 0 0x3fff"
-		print "  sc_eeprom_tool.py COM1 writedata 99d9662bb3d761 0"
+		print "  sc_eeprom_tool.py /dev/ttyACM0 dump ./myeeprom.bin"
+		print "  sc_eeprom_tool.py /dev/ttyACM0 status"
+		print "  sc_eeprom_tool.py /dev/ttyACM0 writefile dump.bin 0 0x3fff"
+		print "  sc_eeprom_tool.py /dev/ttyACM0 writedata 99d9662bb3d761 0"
 
 		sys.exit(0)
 
