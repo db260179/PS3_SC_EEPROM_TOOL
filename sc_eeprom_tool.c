@@ -176,7 +176,7 @@ enum {
 void hwspi_init()
 {
 	HWSPI_DDR |= (HWSPI_IO_SIO3 | HWSPI_IO_RESET | HWSPI_IO_WP);
-	
+
 	HWSPI_RESET_HIGH;
 	HWSPI_WP_LOW;
 	HWSPI_SIO3_HIGH;
@@ -184,13 +184,13 @@ void hwspi_init()
 
 void spi_enable()
 {
-	
+
 	SPI_CONT_DDR = 0xFF; 			// all control ports - output
 	//SPI_CONT_DDR &= ~SPI_CONT_SCLK;
 	SPI_CONT_PORT = 0; //low
 	SPI_CS_HIGH;
 	SPI_CONT_PORT |= SPI_CONT_RESET; //high
-	
+
 	SPI_IO_DDR = 0xFF;
 	SPI_IO_DDR &= ~(SPI_IO_SO) ;
 	SPI_IO_PORT = 0;
@@ -261,10 +261,10 @@ int main(void) {
 	uint8_t write_length_high;
 	uint16_t write_length;
 	uint8_t write_buffer[32];
-	
+
 	// set for 8 MHz clock because of 3.3v regulator
 	CPU_PRESCALE(1);
-	
+
 	// set for 16 MHz clock
 	//CPU_PRESCALE(0);
 
@@ -278,7 +278,7 @@ int main(void) {
 	//Init SPI
 	SPI_Init(SPI_SPEED_FCPU_DIV_32 | SPI_ORDER_MSB_FIRST | SPI_SCK_LEAD_RISING | SPI_SAMPLE_LEADING | SPI_MODE_MASTER);
 	hwspi_init();
-	
+
 	// Initialize the USB, and then wait for the host to set configuration.
 	// If the Teensy is powered without a PC connected to the USB port,
 	// this will wait forever.
@@ -304,14 +304,14 @@ int main(void) {
 			case CMD_PING1:
 				usb_serial_putchar(VERSION_MAJOR);
 				break;
-				
+
 			case CMD_PING2:
 				freemem = freeRam();
 				usb_serial_putchar(VERSION_MINOR);
 				usb_serial_putchar((freemem >> 8) & 0xFF);
 				usb_serial_putchar(freemem & 0xFF);
 				break;
-			
+
 			case CMD_GET_STATUS:
 				HWSPI_CS_LOW;
 				SPI_SendByte(PS3_SC_EEPROM_GET_STATUS_CMD);
@@ -324,22 +324,22 @@ int main(void) {
 				}
 				HWSPI_CS_HIGH;
 				break;
-				
+
 			case CMD_DUMP_EEPROM:
 				HWSPI_CS_LOW;
 
 				SPI_SendByte(PS3_SC_EEPROM_READ_CMD);
 				SPI_SendByte(0);
 				SPI_SendByte(0);
-			
-				for (uint16_t k = 0; k < 0x8000; ++k) 
+
+				for (uint16_t k = 0; k < 0x8000; ++k)
 				{
 					usb_serial_putchar(SPI_ReceiveByte());
 				}
 
 				HWSPI_CS_HIGH;
 				break;
-				
+
 			case CMD_UNLOCK_EEPROM:
 				HWSPI_CS_LOW;
 
@@ -348,38 +348,38 @@ int main(void) {
 				SPI_SendByte(0);
 
 				HWSPI_CS_HIGH;
-				break;		
-				
+				break;
+
 			case CMD_WRITE_EEPROM:
-				
+
 				offset_high = usb_serial_getchar();
 				offset_low = usb_serial_getchar();
 				write_length = usb_serial_getchar();
-				
+
 				for(uint16_t i = 0; i < write_length; i++)
 				{
 					write_buffer[i] = usb_serial_getchar();
 				}
-				
-			
+
+
 				HWSPI_CS_LOW;
 
 				SPI_SendByte(PS3_SC_EEPROM_WRITE_CMD);
 				SPI_SendByte(offset_high);
 				SPI_SendByte(offset_low);
-				
+
 				for(uint16_t i = 0; i < write_length; i++)
 				{
 					SPI_SendByte(write_buffer[i]);
 				}
-				
+
 
 				HWSPI_CS_HIGH;
-				break;	
+				break;
 
 			default:
 				break;
 			}
-		}		
+		}
 	}
 }
