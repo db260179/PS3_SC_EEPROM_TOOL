@@ -11,7 +11,7 @@ Why not, dont have a bus pirate and wanted wiring simpler without voltage divisi
 
 Ubuntu 18.04+ Required packages:
 
-`sudo apt-get install gcc-avr avr-libc avrdude`
+`sudo apt-get install gcc-avr avr-libc avrdude python-serial python-crypto`
 
 Windows:
 
