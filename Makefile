@@ -1,6 +1,6 @@
 # Hey Emacs, this is a -*- makefile -*-
 #----------------------------------------------------------------------------
-# WinAVR Makefile Template written by Eric B. Weddington, Jörg Wunsch, et al.
+# WinAVR Makefile Template written by Eric B. Weddington, Jï¿½rg Wunsch, et al.
 #
 # Released to the Public Domain
 #
@@ -398,7 +398,8 @@ build: elf hex eep lss sym
 
 
 elf: $(TARGET).elf
-hex: $(TARGET).hex
+hex: $(TARGET).hex; \
+	mkdir -p release; cp $(TARGET).hex $(TARGET).elf release/
 eep: $(TARGET).eep
 lss: $(TARGET).lss
 sym: $(TARGET).sym
@@ -597,6 +598,7 @@ clean_list :
 	$(REMOVE) $(SRC:.c=.d)
 	$(REMOVE) $(SRC:.c=.i)
 	$(REMOVEDIR) .dep
+	$(REMOVEDIR) release
 
 
 # Create object files directory
