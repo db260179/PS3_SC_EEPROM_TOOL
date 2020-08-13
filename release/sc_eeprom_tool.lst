@@ -1,0 +1,1851 @@
+   1               		.file	"sc_eeprom_tool.c"
+   2               	__SP_H__ = 0x3e
+   3               	__SP_L__ = 0x3d
+   4               	__SREG__ = 0x3f
+   5               	__RAMPZ__ = 0x3b
+   6               	__tmp_reg__ = 0
+   7               	__zero_reg__ = 1
+   8               		.text
+   9               	.Ltext0:
+  10               		.cfi_sections	.debug_frame
+  11               		.section	.text.hwspi_init,"ax",@progbits
+  12               	.global	hwspi_init
+  14               	hwspi_init:
+  15               	.LFB23:
+  16               		.file 1 "sc_eeprom_tool.c"
+   1:sc_eeprom_tool.c **** /************************************************************************
+   2:sc_eeprom_tool.c **** sc_eeprom_tool.c (v0.01) - Teensy++ 2.0 Compatible PS3 Syscon EEPROM utility
+   3:sc_eeprom_tool.c **** Modified from SPIway from judges <judges@eEcho.com>
+   4:sc_eeprom_tool.c **** Hacked together for Original Model Syscons on Fat PS3 consoles by
+   5:sc_eeprom_tool.c **** WildCard https://twitter.com/VVildCard777 2019
+   6:sc_eeprom_tool.c **** 
+   7:sc_eeprom_tool.c **** This code is licensed to you under the terms of the GNU GPL, version 2;
+   8:sc_eeprom_tool.c **** see file COPYING or http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+   9:sc_eeprom_tool.c **** *************************************************************************/
+  10:sc_eeprom_tool.c **** 
+  11:sc_eeprom_tool.c **** #include <avr/io.h>
+  12:sc_eeprom_tool.c **** #include <avr/interrupt.h>
+  13:sc_eeprom_tool.c **** #include "delay_x.h"
+  14:sc_eeprom_tool.c **** #include "usb_serial.h"
+  15:sc_eeprom_tool.c **** #include "SPI_AVR8.h"
+  16:sc_eeprom_tool.c **** 
+  17:sc_eeprom_tool.c **** #define VERSION_MAJOR			0
+  18:sc_eeprom_tool.c **** #define VERSION_MINOR			1
+  19:sc_eeprom_tool.c **** 
+  20:sc_eeprom_tool.c **** #define CPU_PRESCALE(n)	(CLKPR = 0x80, CLKPR = (n))
+  21:sc_eeprom_tool.c **** 
+  22:sc_eeprom_tool.c **** // Define commands
+  23:sc_eeprom_tool.c **** enum {
+  24:sc_eeprom_tool.c **** 	CMD_PING1 = 0,
+  25:sc_eeprom_tool.c **** 	CMD_PING2,
+  26:sc_eeprom_tool.c **** 	CMD_GET_STATUS,
+  27:sc_eeprom_tool.c **** 	CMD_DUMP_EEPROM,
+  28:sc_eeprom_tool.c **** 	CMD_UNLOCK_EEPROM,
+  29:sc_eeprom_tool.c **** 	CMD_WRITE_EEPROM
+  30:sc_eeprom_tool.c **** } cmd_t;
+  31:sc_eeprom_tool.c **** 
+  32:sc_eeprom_tool.c **** #define PS3_SC_EEPROM_UNLOCK_CMD	 0xA3 //
+  33:sc_eeprom_tool.c **** #define PS3_SC_EEPROM_WRITE_CMD 	 0xA4 //
+  34:sc_eeprom_tool.c **** #define PS3_SC_EEPROM_READ_CMD 	 	 0xA8
+  35:sc_eeprom_tool.c **** #define PS3_SC_EEPROM_GET_STATUS_CMD 0xA9
+  36:sc_eeprom_tool.c **** 
+  37:sc_eeprom_tool.c **** //SPI commands (69)
+  38:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_READ				0x03	//
+  39:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_FASTREAD			0x0B	//
+  40:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_2READ			0xBB	//
+  41:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_DREAD			0x3B	//
+  42:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_4READ_BOTTOM		0xEB	//
+  43:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_4READ_TOP		0xEA	//
+  44:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_QREAD			0x6B	//
+  45:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_PAGEPROG			0x02	//
+  46:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_4PAGEPROG		0x38	//
+  47:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_SECTOR_ERASE		0x20	//
+  48:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_BLOCK_ERASE_32K	0x52	//
+  49:sc_eeprom_tool.c **** #define SPI_COMMAND_3B_BLOCK_ERASE_64K	0xD8	//
+  50:sc_eeprom_tool.c **** 
+  51:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_READ				0x13	//
+  52:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_FASTREAD			0x0C	//
+  53:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_2READ			0xBC	//
+  54:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_DREAD			0x3C	//
+  55:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_4READ			0xEC	//
+  56:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_QREAD			0x6C	//
+  57:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_PAGEPROG			0x12	//
+  58:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_4PAGEPROG		0x3E	//
+  59:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_SECTOR_ERASE		0x21	//
+  60:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_BLOCK_ERASE_32K	0x5C	//
+  61:sc_eeprom_tool.c **** #define SPI_COMMAND_4B_BLOCK_ERASE_64K	0xDC	//
+  62:sc_eeprom_tool.c **** 
+  63:sc_eeprom_tool.c **** #define SPI_COMMAND_CHIP_ERASE			0x60	//
+  64:sc_eeprom_tool.c **** #define SPI_COMMAND_CHIP_ERASE2			0xC7	//
+  65:sc_eeprom_tool.c **** #define SPI_COMMAND_WREN				0x06	//
+  66:sc_eeprom_tool.c **** #define SPI_COMMAND_WRDI				0x04	//
+  67:sc_eeprom_tool.c **** #define SPI_COMMAND_RDSR				0x05	//
+  68:sc_eeprom_tool.c **** #define SPI_COMMAND_RDCR				0x15	//
+  69:sc_eeprom_tool.c **** #define SPI_COMMAND_WRSR				0x01	//
+  70:sc_eeprom_tool.c **** #define SPI_COMMAND_RDEAR				0xC8	//
+  71:sc_eeprom_tool.c **** #define SPI_COMMAND_WREAR				0xC5	//
+  72:sc_eeprom_tool.c **** #define SPI_COMMAND_WPSEL				0x68	//
+  73:sc_eeprom_tool.c **** #define SPI_COMMAND_EQIO				0x35	//
+  74:sc_eeprom_tool.c **** #define SPI_COMMAND_RSTQIO				0xF5	//
+  75:sc_eeprom_tool.c **** #define SPI_COMMAND_EN4B				0xB7	//
+  76:sc_eeprom_tool.c **** #define SPI_COMMAND_EX4B				0xE9	//
+  77:sc_eeprom_tool.c **** #define SPI_COMMAND_PGM_ERS_SUSPEND		0xB0	//
+  78:sc_eeprom_tool.c **** #define SPI_COMMAND_PGM_ERS_RESUME		0x30	//
+  79:sc_eeprom_tool.c **** #define SPI_COMMAND_DP					0xB9	//
+  80:sc_eeprom_tool.c **** #define SPI_COMMAND_RDP					0xAB	//
+  81:sc_eeprom_tool.c **** #define SPI_COMMAND_SBL					0xC0	//
+  82:sc_eeprom_tool.c **** #define SPI_COMMAND_RDFBR				0x16	//
+  83:sc_eeprom_tool.c **** #define SPI_COMMAND_WRFBR				0x17	//
+  84:sc_eeprom_tool.c **** #define SPI_COMMAND_ESFBR				0x18	//
+  85:sc_eeprom_tool.c **** #define SPI_COMMAND_RDID				0x9F	//
+  86:sc_eeprom_tool.c **** #define SPI_COMMAND_RES					0xAB	//
+  87:sc_eeprom_tool.c **** #define SPI_COMMAND_REMS				0x90	//
+  88:sc_eeprom_tool.c **** #define SPI_COMMAND_QPIID				0xAF	//
+  89:sc_eeprom_tool.c **** #define SPI_COMMAND_RDSFDP				0x5A	//
+  90:sc_eeprom_tool.c **** #define SPI_COMMAND_ENSO				0xB1	//
+  91:sc_eeprom_tool.c **** #define SPI_COMMAND_EXSO				0xC1	//
+  92:sc_eeprom_tool.c **** #define SPI_COMMAND_RDSCUR				0x2B	//
+  93:sc_eeprom_tool.c **** #define SPI_COMMAND_WRSCUR				0x2F	//
+  94:sc_eeprom_tool.c **** #define SPI_COMMAND_GBLK				0x7E	//
+  95:sc_eeprom_tool.c **** #define SPI_COMMAND_GBULK				0x98	//
+  96:sc_eeprom_tool.c **** #define SPI_COMMAND_WRLR				0x2C	//
+  97:sc_eeprom_tool.c **** #define SPI_COMMAND_RDLR				0x2D	//
+  98:sc_eeprom_tool.c **** #define SPI_COMMAND_WRPASS				0x28	//
+  99:sc_eeprom_tool.c **** #define SPI_COMMAND_RDPASS				0x27	//
+ 100:sc_eeprom_tool.c **** #define SPI_COMMAND_PASSULK				0x29	//
+ 101:sc_eeprom_tool.c **** #define SPI_COMMAND_WRSPB				0xE3	//
+ 102:sc_eeprom_tool.c **** #define SPI_COMMAND_ESSPB				0xE4	//
+ 103:sc_eeprom_tool.c **** #define SPI_COMMAND_RDSPB				0xE2	//
+ 104:sc_eeprom_tool.c **** #define SPI_COMMAND_SPBLK				0xA6	//
+ 105:sc_eeprom_tool.c **** #define SPI_COMMAND_RDSPBLK				0xA7	//
+ 106:sc_eeprom_tool.c **** #define SPI_COMMAND_WRDPB				0xE1	//
+ 107:sc_eeprom_tool.c **** #define SPI_COMMAND_RDDPB				0xE0	//
+ 108:sc_eeprom_tool.c **** #define SPI_COMMAND_NOP					0x00	//
+ 109:sc_eeprom_tool.c **** #define SPI_COMMAND_RSTEN				0x66	//
+ 110:sc_eeprom_tool.c **** #define SPI_COMMAND_RST					0x99	//
+ 111:sc_eeprom_tool.c **** 
+ 112:sc_eeprom_tool.c **** 
+ 113:sc_eeprom_tool.c **** #define SPI_IO_PORT		PORTF
+ 114:sc_eeprom_tool.c **** #define SPI_IO_PIN		PINF
+ 115:sc_eeprom_tool.c **** #define SPI_IO_DDR		DDRF
+ 116:sc_eeprom_tool.c **** #define SPI_IO_0		0b00000001		// 0: SIO0
+ 117:sc_eeprom_tool.c **** #define SPI_IO_1		0b00000010		// 1: SIO1
+ 118:sc_eeprom_tool.c **** #define SPI_IO_2		0b00000100		// 2: SIO2
+ 119:sc_eeprom_tool.c **** #define SPI_IO_3		0b00001000		// 3: SIO3
+ 120:sc_eeprom_tool.c **** #define SPI_IO_MASK		0b00001111		//
+ 121:sc_eeprom_tool.c **** 
+ 122:sc_eeprom_tool.c **** #define SPI_IO_SI		0b00000001		// 0: SI
+ 123:sc_eeprom_tool.c **** #define SPI_IO_SO		0b00000010		// 1: SO
+ 124:sc_eeprom_tool.c **** #define SPI_IO_WP		0b00000100		// 2: WP
+ 125:sc_eeprom_tool.c **** #define SPI_IO_SO_WP_IO3	0b00001110		// 2: WP
+ 126:sc_eeprom_tool.c **** 
+ 127:sc_eeprom_tool.c **** #define SPI_CONT_PORT	PORTC
+ 128:sc_eeprom_tool.c **** #define SPI_CONT_PIN	PINC
+ 129:sc_eeprom_tool.c **** #define SPI_CONT_DDR	DDRC
+ 130:sc_eeprom_tool.c **** #define SPI_CONT_CS		0b00000001		// 0: Chip Select
+ 131:sc_eeprom_tool.c **** #define SPI_CONT_SCLK	0b00000010		// 1: Clock Input
+ 132:sc_eeprom_tool.c **** #define SPI_CONT_RESET	0b00000100		// 2: Reset
+ 133:sc_eeprom_tool.c **** 
+ 134:sc_eeprom_tool.c **** #define HWSPI_PORT		PORTB
+ 135:sc_eeprom_tool.c **** #define HWSPI_PIN		PINB
+ 136:sc_eeprom_tool.c **** #define HWSPI_DDR		DDRB
+ 137:sc_eeprom_tool.c **** #define HWSPI_IO_CS		0b00000001		// 0: CS# (Chip select)
+ 138:sc_eeprom_tool.c **** #define HWSPI_IO_SCLK	0b00000010		// 1: SCLK (Clock)
+ 139:sc_eeprom_tool.c **** #define HWSPI_IO_MOSI	0b00000100		// 2: SI (Master out / Slave in)
+ 140:sc_eeprom_tool.c **** #define HWSPI_IO_MISO	0b00001000		// 3: SO (Master in / Slave out)
+ 141:sc_eeprom_tool.c **** #define HWSPI_IO_WP		0b00010000		// 4: WP#/SIO2
+ 142:sc_eeprom_tool.c **** #define HWSPI_IO_SIO3	0b00100000		// 5: SIO3
+ 143:sc_eeprom_tool.c **** #define HWSPI_IO_RESET	0b01000000		// 6: RESET#
+ 144:sc_eeprom_tool.c **** 
+ 145:sc_eeprom_tool.c **** #define HWSPI_CS_HIGH		HWSPI_PORT |= HWSPI_IO_CS
+ 146:sc_eeprom_tool.c **** #define HWSPI_CS_LOW		HWSPI_PORT &= ~(HWSPI_IO_CS)
+ 147:sc_eeprom_tool.c **** #define HWSPI_RESET_HIGH	HWSPI_PORT |= HWSPI_IO_RESET
+ 148:sc_eeprom_tool.c **** #define HWSPI_RESET_LOW		HWSPI_PORT &= ~(HWSPI_IO_RESET)
+ 149:sc_eeprom_tool.c **** #define HWSPI_WP_HIGH		HWSPI_PORT |= HWSPI_IO_WP
+ 150:sc_eeprom_tool.c **** #define HWSPI_WP_LOW		HWSPI_PORT &= ~(HWSPI_IO_WP)
+ 151:sc_eeprom_tool.c **** #define HWSPI_SIO3_HIGH		HWSPI_PORT |= HWSPI_IO_SIO3
+ 152:sc_eeprom_tool.c **** #define HWSPI_SIO3_LOW		HWSPI_PORT &= ~(HWSPI_IO_SIO3)
+ 153:sc_eeprom_tool.c **** 
+ 154:sc_eeprom_tool.c **** 
+ 155:sc_eeprom_tool.c **** 
+ 156:sc_eeprom_tool.c **** #define SPI_CS_HIGH			SPI_CONT_PORT |= SPI_CONT_CS
+ 157:sc_eeprom_tool.c **** #define SPI_CS_LOW			SPI_CONT_PORT &= ~(SPI_CONT_CS)
+ 158:sc_eeprom_tool.c **** #define SPI_TOGGLE_SCLK		SPI_CONT_PORT |= SPI_CONT_SCLK; SPI_CONT_PORT &= ~(SPI_CONT_SCLK)
+ 159:sc_eeprom_tool.c **** 
+ 160:sc_eeprom_tool.c **** #define SPI_IO_READ(_data_)	SPI_TOGGLE_SCLK; (_data_) = ((SPI_IO_PIN & SPI_IO_SO)<<6); SPI_TOGGLE_S
+ 161:sc_eeprom_tool.c **** //#define SPI_IO_SET(_data_)	SPI_IO_PORT = (((_data_)>>7) & ~0xFE) | SPI_IO_3; SPI_TOGGLE_SCLK; SPI
+ 162:sc_eeprom_tool.c **** #define SPI_IO_SET(_data_)	SPI_IO_PORT = (((_data_)>>7) & ~0xFE) | SPI_IO_SO_WP_IO3; SPI_TOGGLE_SCL
+ 163:sc_eeprom_tool.c **** #define SPI_COMMAND(_cmd_)	SPI_IO_SET(_cmd_)
+ 164:sc_eeprom_tool.c **** #define QPI_IO_READ(_data_)	(_data_) = 0; SPI_TOGGLE_SCLK; (_data_) = (SPI_IO_PIN & SPI_IO_MASK)<<4
+ 165:sc_eeprom_tool.c **** #define QPI_IO_SET(_data_)	SPI_IO_PORT = (_data_)>>4; SPI_TOGGLE_SCLK; SPI_IO_PORT = (_data_); SPI_
+ 166:sc_eeprom_tool.c **** #define QPI_COMMAND(_cmd_)	QPI_IO_SET(_cmd_)
+ 167:sc_eeprom_tool.c **** 
+ 168:sc_eeprom_tool.c **** #define SPI_IO_INPUT		SPI_IO_PORT |= SPI_IO_SO //; SPI_IO_DDR = 0x00; SPI_IO_PORT = IO_PULLUPS //0=
+ 169:sc_eeprom_tool.c **** #define SPI_IO_OUTPUT		SPI_IO_DDR = 0xFF
+ 170:sc_eeprom_tool.c **** //#define SPI_BUSY_WAIT		while (1) { if (!(spi_status() & SPI_STATUS_WIP)) { break; } }
+ 171:sc_eeprom_tool.c **** #define SPI_BUSY_WAIT		HWSPI_CS_LOW; SPI_SendByte(SPI_COMMAND_RDSR); while (SPI_ReceiveByte() & SPI
+ 172:sc_eeprom_tool.c **** #define SPI_WREN			while ((spi_status() & SPI_STATUS_WEL) == 0) { cli(); SPI_CS_LOW; SPI_COMMAND(SP
+ 173:sc_eeprom_tool.c **** //#define HWSPI_WREN			while ((hwspi_status() & SPI_STATUS_WEL) == 0) { cli(); HWSPI_CS_LOW; SPI_Se
+ 174:sc_eeprom_tool.c **** #define HWSPI_WREN			do { HWSPI_CS_LOW; SPI_SendByte(SPI_COMMAND_WREN); HWSPI_CS_HIGH; } while (!(h
+ 175:sc_eeprom_tool.c **** 
+ 176:sc_eeprom_tool.c **** void hwspi_init()
+ 177:sc_eeprom_tool.c **** {
+  17               		.loc 1 177 0
+  18               		.cfi_startproc
+  19               	/* prologue: function */
+  20               	/* frame size = 0 */
+  21               	/* stack size = 0 */
+  22               	.L__stack_usage = 0
+ 178:sc_eeprom_tool.c **** 	HWSPI_DDR |= (HWSPI_IO_SIO3 | HWSPI_IO_RESET | HWSPI_IO_WP);
+  23               		.loc 1 178 0
+  24 0000 84B1      		in r24,0x4
+  25 0002 8067      		ori r24,lo8(112)
+  26 0004 84B9      		out 0x4,r24
+ 179:sc_eeprom_tool.c **** 
+ 180:sc_eeprom_tool.c **** 	HWSPI_RESET_HIGH;
+  27               		.loc 1 180 0
+  28 0006 2E9A      		sbi 0x5,6
+ 181:sc_eeprom_tool.c **** 	HWSPI_WP_LOW;
+  29               		.loc 1 181 0
+  30 0008 2C98      		cbi 0x5,4
+ 182:sc_eeprom_tool.c **** 	HWSPI_SIO3_HIGH;
+  31               		.loc 1 182 0
+  32 000a 2D9A      		sbi 0x5,5
+  33 000c 0895      		ret
+  34               		.cfi_endproc
+  35               	.LFE23:
+  37               		.section	.text.spi_enable,"ax",@progbits
+  38               	.global	spi_enable
+  40               	spi_enable:
+  41               	.LFB24:
+ 183:sc_eeprom_tool.c **** }
+ 184:sc_eeprom_tool.c **** 
+ 185:sc_eeprom_tool.c **** void spi_enable()
+ 186:sc_eeprom_tool.c **** {
+  42               		.loc 1 186 0
+  43               		.cfi_startproc
+  44               	/* prologue: function */
+  45               	/* frame size = 0 */
+  46               	/* stack size = 0 */
+  47               	.L__stack_usage = 0
+ 187:sc_eeprom_tool.c **** 
+ 188:sc_eeprom_tool.c **** 	SPI_CONT_DDR = 0xFF; 			// all control ports - output
+  48               		.loc 1 188 0
+  49 0000 8FEF      		ldi r24,lo8(-1)
+  50 0002 87B9      		out 0x7,r24
+ 189:sc_eeprom_tool.c **** 	//SPI_CONT_DDR &= ~SPI_CONT_SCLK;
+ 190:sc_eeprom_tool.c **** 	SPI_CONT_PORT = 0; //low
+  51               		.loc 1 190 0
+  52 0004 18B8      		out 0x8,__zero_reg__
+ 191:sc_eeprom_tool.c **** 	SPI_CS_HIGH;
+  53               		.loc 1 191 0
+  54 0006 409A      		sbi 0x8,0
+ 192:sc_eeprom_tool.c **** 	SPI_CONT_PORT |= SPI_CONT_RESET; //high
+  55               		.loc 1 192 0
+  56 0008 429A      		sbi 0x8,2
+ 193:sc_eeprom_tool.c **** 
+ 194:sc_eeprom_tool.c **** 	SPI_IO_DDR = 0xFF;
+  57               		.loc 1 194 0
+  58 000a 80BB      		out 0x10,r24
+ 195:sc_eeprom_tool.c **** 	SPI_IO_DDR &= ~(SPI_IO_SO) ;
+  59               		.loc 1 195 0
+  60 000c 8198      		cbi 0x10,1
+ 196:sc_eeprom_tool.c **** 	SPI_IO_PORT = 0;
+  61               		.loc 1 196 0
+  62 000e 11BA      		out 0x11,__zero_reg__
+ 197:sc_eeprom_tool.c **** 	//SPI_IO_PORT |= (SPI_IO_3 | SPI_IO_WP);
+ 198:sc_eeprom_tool.c **** 	//SPI_IO_PORT |= (SPI_IO_3);
+ 199:sc_eeprom_tool.c **** 	SPI_IO_PORT |= SPI_IO_SO_WP_IO3;
+  63               		.loc 1 199 0
+  64 0010 81B3      		in r24,0x11
+  65 0012 8E60      		ori r24,lo8(14)
+  66 0014 81BB      		out 0x11,r24
+  67 0016 0895      		ret
+  68               		.cfi_endproc
+  69               	.LFE24:
+  71               		.section	.text.releaseports,"ax",@progbits
+  72               	.global	releaseports
+  74               	releaseports:
+  75               	.LFB25:
+ 200:sc_eeprom_tool.c **** }
+ 201:sc_eeprom_tool.c **** 
+ 202:sc_eeprom_tool.c **** void releaseports()
+ 203:sc_eeprom_tool.c **** {
+  76               		.loc 1 203 0
+  77               		.cfi_startproc
+  78               	/* prologue: function */
+  79               	/* frame size = 0 */
+  80               	/* stack size = 0 */
+  81               	.L__stack_usage = 0
+ 204:sc_eeprom_tool.c **** 	DDRA = 0; DDRB = 0; DDRC = 0; DDRD = 0; DDRE = 0; DDRF = 0;
+  82               		.loc 1 204 0
+  83 0000 11B8      		out 0x1,__zero_reg__
+  84 0002 14B8      		out 0x4,__zero_reg__
+  85 0004 17B8      		out 0x7,__zero_reg__
+  86 0006 1AB8      		out 0xa,__zero_reg__
+  87 0008 1DB8      		out 0xd,__zero_reg__
+  88 000a 10BA      		out 0x10,__zero_reg__
+ 205:sc_eeprom_tool.c **** 	PORTA = 0; PORTB = 0; PORTC = 0; PORTD = 0; PORTE = 0; PORTF = 0;
+  89               		.loc 1 205 0
+  90 000c 12B8      		out 0x2,__zero_reg__
+  91 000e 15B8      		out 0x5,__zero_reg__
+  92 0010 18B8      		out 0x8,__zero_reg__
+  93 0012 1BB8      		out 0xb,__zero_reg__
+  94 0014 1EB8      		out 0xe,__zero_reg__
+  95 0016 11BA      		out 0x11,__zero_reg__
+  96 0018 0895      		ret
+  97               		.cfi_endproc
+  98               	.LFE25:
+ 100               		.section	.text.wait_ryby,"ax",@progbits
+ 101               	.global	wait_ryby
+ 103               	wait_ryby:
+ 104               	.LFB26:
+ 206:sc_eeprom_tool.c **** }
+ 207:sc_eeprom_tool.c **** 
+ 208:sc_eeprom_tool.c **** uint8_t wait_ryby()
+ 209:sc_eeprom_tool.c **** {
+ 105               		.loc 1 209 0
+ 106               		.cfi_startproc
+ 107 0000 CF93      		push r28
+ 108               	.LCFI0:
+ 109               		.cfi_def_cfa_offset 3
+ 110               		.cfi_offset 28, -2
+ 111 0002 DF93      		push r29
+ 112               	.LCFI1:
+ 113               		.cfi_def_cfa_offset 4
+ 114               		.cfi_offset 29, -3
+ 115 0004 00D0      		rcall .
+ 116 0006 00D0      		rcall .
+ 117               	.LCFI2:
+ 118               		.cfi_def_cfa_offset 8
+ 119 0008 CDB7      		in r28,__SP_L__
+ 120 000a DEB7      		in r29,__SP_H__
+ 121               	.LCFI3:
+ 122               		.cfi_def_cfa_register 28
+ 123               	/* prologue: function */
+ 124               	/* frame size = 4 */
+ 125               	/* stack size = 6 */
+ 126               	.L__stack_usage = 6
+ 210:sc_eeprom_tool.c **** 	/* Should be done within 3 milliseconds for all commands. */
+ 211:sc_eeprom_tool.c **** 	volatile uint32_t timeout = 0x200000; //approx. 3secs
+ 127               		.loc 1 211 0
+ 128 000c 80E0      		ldi r24,0
+ 129 000e 90E0      		ldi r25,0
+ 130 0010 A0E2      		ldi r26,lo8(32)
+ 131 0012 B0E0      		ldi r27,0
+ 132               	.L9:
+ 212:sc_eeprom_tool.c **** 
+ 213:sc_eeprom_tool.c **** 	while (timeout > 0) {
+ 214:sc_eeprom_tool.c **** 		if ( SPI_CONT_PIN & SPI_CONT_CS ) {
+ 215:sc_eeprom_tool.c **** 			return 1;
+ 216:sc_eeprom_tool.c **** 		}
+ 217:sc_eeprom_tool.c **** 		--timeout;
+ 133               		.loc 1 217 0
+ 134 0014 8983      		std Y+1,r24
+ 135 0016 9A83      		std Y+2,r25
+ 136 0018 AB83      		std Y+3,r26
+ 137 001a BC83      		std Y+4,r27
+ 213:sc_eeprom_tool.c **** 		if ( SPI_CONT_PIN & SPI_CONT_CS ) {
+ 138               		.loc 1 213 0
+ 139 001c 8981      		ldd r24,Y+1
+ 140 001e 9A81      		ldd r25,Y+2
+ 141 0020 AB81      		ldd r26,Y+3
+ 142 0022 BC81      		ldd r27,Y+4
+ 143 0024 892B      		or r24,r25
+ 144 0026 8A2B      		or r24,r26
+ 145 0028 8B2B      		or r24,r27
+ 146 002a 01F0      		breq .L11
+ 214:sc_eeprom_tool.c **** 			return 1;
+ 147               		.loc 1 214 0
+ 148 002c 3099      		sbic 0x6,0
+ 149 002e 00C0      		rjmp .L8
+ 150               		.loc 1 217 0
+ 151 0030 8981      		ldd r24,Y+1
+ 152 0032 9A81      		ldd r25,Y+2
+ 153 0034 AB81      		ldd r26,Y+3
+ 154 0036 BC81      		ldd r27,Y+4
+ 155 0038 0197      		sbiw r24,1
+ 156 003a A109      		sbc r26,__zero_reg__
+ 157 003c B109      		sbc r27,__zero_reg__
+ 158 003e 00C0      		rjmp .L9
+ 159               	.L11:
+ 218:sc_eeprom_tool.c **** 	}
+ 219:sc_eeprom_tool.c **** 
+ 220:sc_eeprom_tool.c **** 	return 0;
+ 160               		.loc 1 220 0
+ 161 0040 80E0      		ldi r24,0
+ 162 0042 00C0      		rjmp .L6
+ 163               	.L8:
+ 215:sc_eeprom_tool.c **** 		}
+ 164               		.loc 1 215 0
+ 165 0044 81E0      		ldi r24,lo8(1)
+ 166               	.L6:
+ 167               	/* epilogue start */
+ 221:sc_eeprom_tool.c **** }
+ 168               		.loc 1 221 0
+ 169 0046 0F90      		pop __tmp_reg__
+ 170 0048 0F90      		pop __tmp_reg__
+ 171 004a 0F90      		pop __tmp_reg__
+ 172 004c 0F90      		pop __tmp_reg__
+ 173 004e DF91      		pop r29
+ 174 0050 CF91      		pop r28
+ 175 0052 0895      		ret
+ 176               		.cfi_endproc
+ 177               	.LFE26:
+ 179               		.section	.text.spi_reset,"ax",@progbits
+ 180               	.global	spi_reset
+ 182               	spi_reset:
+ 183               	.LFB27:
+ 222:sc_eeprom_tool.c **** 
+ 223:sc_eeprom_tool.c **** void spi_reset()
+ 224:sc_eeprom_tool.c **** {
+ 184               		.loc 1 224 0
+ 185               		.cfi_startproc
+ 186               	/* prologue: function */
+ 187               	/* frame size = 0 */
+ 188               	/* stack size = 0 */
+ 189               	.L__stack_usage = 0
+ 225:sc_eeprom_tool.c **** 	spi_enable();
+ 190               		.loc 1 225 0
+ 191 0000 0E94 0000 		call spi_enable
+ 192               	.LVL0:
+ 226:sc_eeprom_tool.c **** 	SPI_COMMAND(SPI_COMMAND_RSTEN);
+ 193               		.loc 1 226 0
+ 194 0004 9EE0      		ldi r25,lo8(14)
+ 195 0006 91BB      		out 0x11,r25
+ 196 0008 419A      		sbi 0x8,1
+ 197 000a 4198      		cbi 0x8,1
+ 198 000c 8FE0      		ldi r24,lo8(15)
+ 199 000e 81BB      		out 0x11,r24
+ 200 0010 419A      		sbi 0x8,1
+ 201 0012 4198      		cbi 0x8,1
+ 202 0014 81BB      		out 0x11,r24
+ 203 0016 419A      		sbi 0x8,1
+ 204 0018 4198      		cbi 0x8,1
+ 205 001a 91BB      		out 0x11,r25
+ 206 001c 419A      		sbi 0x8,1
+ 207 001e 4198      		cbi 0x8,1
+ 208 0020 91BB      		out 0x11,r25
+ 209 0022 419A      		sbi 0x8,1
+ 210 0024 4198      		cbi 0x8,1
+ 211 0026 81BB      		out 0x11,r24
+ 212 0028 419A      		sbi 0x8,1
+ 213 002a 4198      		cbi 0x8,1
+ 214 002c 81BB      		out 0x11,r24
+ 215 002e 419A      		sbi 0x8,1
+ 216 0030 4198      		cbi 0x8,1
+ 217 0032 91BB      		out 0x11,r25
+ 218 0034 419A      		sbi 0x8,1
+ 219 0036 4198      		cbi 0x8,1
+ 227:sc_eeprom_tool.c **** 	SPI_COMMAND(SPI_COMMAND_RST);
+ 220               		.loc 1 227 0
+ 221 0038 81BB      		out 0x11,r24
+ 222 003a 419A      		sbi 0x8,1
+ 223 003c 4198      		cbi 0x8,1
+ 224 003e 91BB      		out 0x11,r25
+ 225 0040 419A      		sbi 0x8,1
+ 226 0042 4198      		cbi 0x8,1
+ 227 0044 91BB      		out 0x11,r25
+ 228 0046 419A      		sbi 0x8,1
+ 229 0048 4198      		cbi 0x8,1
+ 230 004a 81BB      		out 0x11,r24
+ 231 004c 419A      		sbi 0x8,1
+ 232 004e 4198      		cbi 0x8,1
+ 233 0050 81BB      		out 0x11,r24
+ 234 0052 419A      		sbi 0x8,1
+ 235 0054 4198      		cbi 0x8,1
+ 236 0056 91BB      		out 0x11,r25
+ 237 0058 419A      		sbi 0x8,1
+ 238 005a 4198      		cbi 0x8,1
+ 239 005c 91BB      		out 0x11,r25
+ 240 005e 419A      		sbi 0x8,1
+ 241 0060 4198      		cbi 0x8,1
+ 242 0062 81BB      		out 0x11,r24
+ 243 0064 419A      		sbi 0x8,1
+ 244 0066 4198      		cbi 0x8,1
+ 228:sc_eeprom_tool.c **** 	wait_ryby();
+ 245               		.loc 1 228 0
+ 246 0068 0C94 0000 		jmp wait_ryby
+ 247               	.LVL1:
+ 248               		.cfi_endproc
+ 249               	.LFE27:
+ 251               		.section	.text.bootloader,"ax",@progbits
+ 252               	.global	bootloader
+ 254               	bootloader:
+ 255               	.LFB28:
+ 229:sc_eeprom_tool.c **** }
+ 230:sc_eeprom_tool.c **** 
+ 231:sc_eeprom_tool.c **** void bootloader() {
+ 256               		.loc 1 231 0
+ 257               		.cfi_startproc
+ 258               	/* prologue: function */
+ 259               	/* frame size = 0 */
+ 260               	/* stack size = 0 */
+ 261               	.L__stack_usage = 0
+ 232:sc_eeprom_tool.c **** 	cli();
+ 262               		.loc 1 232 0
+ 263               	/* #APP */
+ 264               	 ;  232 "sc_eeprom_tool.c" 1
+ 265 0000 F894      		cli
+ 266               	 ;  0 "" 2
+ 233:sc_eeprom_tool.c **** 	// disable watchdog, if enabled
+ 234:sc_eeprom_tool.c **** 	// disable all peripherals
+ 235:sc_eeprom_tool.c **** 	UDCON = 1;
+ 267               		.loc 1 235 0
+ 268               	/* #NOAPP */
+ 269 0002 81E0      		ldi r24,lo8(1)
+ 270 0004 8093 E000 		sts 224,r24
+ 236:sc_eeprom_tool.c **** 	USBCON = (1<<FRZCLK);  // disable USB
+ 271               		.loc 1 236 0
+ 272 0008 80E2      		ldi r24,lo8(32)
+ 273 000a 8093 D800 		sts 216,r24
+ 237:sc_eeprom_tool.c **** 	UCSR1B = 0;
+ 274               		.loc 1 237 0
+ 275 000e 29EC      		ldi r18,lo8(-55)
+ 276 0010 30E0      		ldi r19,0
+ 277 0012 F901      		movw r30,r18
+ 278 0014 1082      		st Z,__zero_reg__
+ 279               	.LVL2:
+ 280               	.LBB330:
+ 281               	.LBB331:
+ 282               	.LBB332:
+ 283               	.LBB333:
+ 284               		.file 2 "delay_x.h"
+   1:delay_x.h     **** /*
+   2:delay_x.h     ****    Copyright (c) 2005, Hans-Juergen Heinrichs
+   3:delay_x.h     ****    All rights reserved.
+   4:delay_x.h     **** 
+   5:delay_x.h     ****    Redistribution and use in source and binary forms, with or without
+   6:delay_x.h     ****    modification, are permitted provided that the following conditions are met:
+   7:delay_x.h     **** 
+   8:delay_x.h     ****    * Redistributions of source code must retain the above copyright
+   9:delay_x.h     ****      notice, this list of conditions and the following disclaimer.
+  10:delay_x.h     **** 
+  11:delay_x.h     ****    * Redistributions in binary form must reproduce the above copyright
+  12:delay_x.h     ****      notice, this list of conditions and the following disclaimer in
+  13:delay_x.h     ****      the documentation and/or other materials provided with the
+  14:delay_x.h     ****      distribution.
+  15:delay_x.h     **** 
+  16:delay_x.h     ****    * Neither the name of the copyright holders nor the names of
+  17:delay_x.h     ****      contributors may be used to endorse or promote products derived
+  18:delay_x.h     ****      from this software without specific prior written permission.
+  19:delay_x.h     **** 
+  20:delay_x.h     ****   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  21:delay_x.h     ****   AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  22:delay_x.h     ****   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  23:delay_x.h     ****   ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+  24:delay_x.h     ****   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  25:delay_x.h     ****   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  26:delay_x.h     ****   SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  27:delay_x.h     ****   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  28:delay_x.h     ****   CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  29:delay_x.h     ****   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  30:delay_x.h     ****   POSSIBILITY OF SUCH DAMAGE.
+  31:delay_x.h     **** */
+  32:delay_x.h     **** 
+  33:delay_x.h     **** 
+  34:delay_x.h     **** /*
+  35:delay_x.h     ****  *  delay_x.h
+  36:delay_x.h     ****  *
+  37:delay_x.h     ****  *  Accurate delays ranging from a single CPU cycle up to
+  38:delay_x.h     ****  *  more than 500 second (e.g. with 8MHz device):
+  39:delay_x.h     ****  *
+  40:delay_x.h     ****  *  The idea for the functions below was heavily inspired by the
+  41:delay_x.h     ****  *  file <avr/delay.h> which is part of the excellent WinAVR
+  42:delay_x.h     ****  *  distribution. Therefore, thanks to Marek Michalkiewicz and
+  43:delay_x.h     ****  *  Joerg Wunsch.
+  44:delay_x.h     ****  *
+  45:delay_x.h     ****  *  The idea is to have the GCC preprocessor handle all calculations
+  46:delay_x.h     ****  *  necessary for determining the exact implementation of a delay
+  47:delay_x.h     ****  *  algorithm. The implementation itself is then inlined into the
+  48:delay_x.h     ****  *  user code.
+  49:delay_x.h     ****  *  In this way it is possible to always get the code size optimized
+  50:delay_x.h     ****  *  delay implementation.
+  51:delay_x.h     ****  *
+  52:delay_x.h     ****  *  !!======================================================!!
+  53:delay_x.h     ****  *  !! Requires compile time constants for the delay        !!
+  54:delay_x.h     ****  *  !! Requires compiler optimization                       !!
+  55:delay_x.h     ****  *  !!======================================================!!
+  56:delay_x.h     ****  *
+  57:delay_x.h     ****  */
+  58:delay_x.h     **** 
+  59:delay_x.h     **** #ifndef _AVR_DELAY_X_H_
+  60:delay_x.h     **** #define _AVR_DELAY_X_H_ 1
+  61:delay_x.h     **** 
+  62:delay_x.h     **** #include <inttypes.h>
+  63:delay_x.h     **** 
+  64:delay_x.h     **** #ifndef F_CPU
+  65:delay_x.h     **** # warning "Macro F_CPU must be defined"
+  66:delay_x.h     **** #endif
+  67:delay_x.h     **** 
+  68:delay_x.h     **** 
+  69:delay_x.h     **** /*
+  70:delay_x.h     ****  *
+  71:delay_x.h     ****  *   _ d e l a y _ n s (double __ns)
+  72:delay_x.h     ****  *   _ d e l a y _ u s (double __us)
+  73:delay_x.h     ****  *   _ d e l a y _ m s (double __ms)
+  74:delay_x.h     ****  *   _ d e l a y _ s   (double __s)
+  75:delay_x.h     ****  *
+  76:delay_x.h     ****  *   Perform a very exact delay with a resolution as accurate as a
+  77:delay_x.h     ****  *   single CPU clock (the macro F_CPU is supposed to be defined to a
+  78:delay_x.h     ****  *   constant defining the CPU clock frequency in Hertz).
+  79:delay_x.h     ****  *
+  80:delay_x.h     ****  */
+  81:delay_x.h     **** #define _delay_ns(__ns)     _delay_cycles( (double)(F_CPU)*((double)__ns)/1.0e9 + 0.5 )
+  82:delay_x.h     **** #define _delay_us(__us)     _delay_cycles( (double)(F_CPU)*((double)__us)/1.0e6 + 0.5 )
+  83:delay_x.h     **** #define _delay_ms(__ms)     _delay_cycles( (double)(F_CPU)*((double)__ms)/1.0e3 + 0.5 )
+  84:delay_x.h     **** #define _delay_s(  __s)     _delay_cycles( (double)(F_CPU)*((double)__s )/1.0e0 + 0.5 )
+  85:delay_x.h     **** 
+  86:delay_x.h     **** /* ==========================================================================*/
+  87:delay_x.h     **** 
+  88:delay_x.h     **** /*
+  89:delay_x.h     ****  * Forward declaration for all functions with attribute
+  90:delay_x.h     ****  * 'always_inline' enforces GCC to inline the code (even
+  91:delay_x.h     ****  * if it would be better not to do so from optimization
+  92:delay_x.h     ****  * perspective).
+  93:delay_x.h     ****  * Without this attribute GCC is free to implement
+  94:delay_x.h     ****  * inline code or not (using the keyword 'inline'
+  95:delay_x.h     ****  * alone is not sufficient).
+  96:delay_x.h     ****  *
+  97:delay_x.h     ****  */
+  98:delay_x.h     **** static __inline__ void _NOP1( void) __attribute__((always_inline));
+  99:delay_x.h     **** static __inline__ void _NOP2( void) __attribute__((always_inline));
+ 100:delay_x.h     **** static __inline__ void _NOP3( void) __attribute__((always_inline));
+ 101:delay_x.h     **** static __inline__ void _NOP4( void) __attribute__((always_inline));
+ 102:delay_x.h     **** static __inline__ void _NOP5( void) __attribute__((always_inline));
+ 103:delay_x.h     **** static __inline__ void _NOP6( void) __attribute__((always_inline));
+ 104:delay_x.h     **** static __inline__ void _NOP7( void) __attribute__((always_inline));
+ 105:delay_x.h     **** static __inline__ void _NOP8( void) __attribute__((always_inline));
+ 106:delay_x.h     **** static __inline__ void _NOP9( void) __attribute__((always_inline));
+ 107:delay_x.h     **** static __inline__ void _NOP10(void) __attribute__((always_inline));
+ 108:delay_x.h     **** static __inline__ void _NOP11(void) __attribute__((always_inline));
+ 109:delay_x.h     **** static __inline__ void _NOP12(void) __attribute__((always_inline));
+ 110:delay_x.h     **** 
+ 111:delay_x.h     **** static __inline__ void _delay_loop_3(  uint32_t) __attribute__((always_inline));
+ 112:delay_x.h     **** static __inline__ void _delay_loop_1_x( uint8_t) __attribute__((always_inline));
+ 113:delay_x.h     **** static __inline__ void _delay_loop_2_x(uint16_t) __attribute__((always_inline));
+ 114:delay_x.h     **** static __inline__ void _delay_loop_3_x(uint32_t) __attribute__((always_inline));
+ 115:delay_x.h     **** 
+ 116:delay_x.h     **** static __inline__ void _delay_cycles(const double) __attribute__((always_inline));
+ 117:delay_x.h     **** 
+ 118:delay_x.h     **** 
+ 119:delay_x.h     **** /*
+ 120:delay_x.h     ****  * _ N O P x ( void )
+ 121:delay_x.h     ****  *
+ 122:delay_x.h     ****  * Code size optimized NOPs - not using any registers
+ 123:delay_x.h     ****  *
+ 124:delay_x.h     ****  * These NOPs will be used for very short delays where
+ 125:delay_x.h     ****  * it is more code efficient than executing loops.
+ 126:delay_x.h     ****  *
+ 127:delay_x.h     ****  */
+ 128:delay_x.h     **** static __inline__ void _NOP1 (void) { __asm__ volatile ( "nop    " "\n\t" ); }
+ 129:delay_x.h     **** static __inline__ void _NOP2 (void) { __asm__ volatile ( "rjmp 1f" "\n\t"  "1:" "\n\t" ); }
+ 130:delay_x.h     **** static __inline__ void _NOP3 (void) { __asm__ volatile ( "lpm    " "\n\t" ); }
+ 131:delay_x.h     **** static __inline__ void _NOP4 (void) { _NOP3(); _NOP1(); }
+ 132:delay_x.h     **** static __inline__ void _NOP5 (void) { _NOP3(); _NOP2(); }
+ 133:delay_x.h     **** static __inline__ void _NOP6 (void) { _NOP3(); _NOP3(); }
+ 134:delay_x.h     **** static __inline__ void _NOP7 (void) { _NOP3(); _NOP3(); _NOP1(); }
+ 135:delay_x.h     **** static __inline__ void _NOP8 (void) { _NOP3(); _NOP3(); _NOP2(); }
+ 136:delay_x.h     **** static __inline__ void _NOP9 (void) { _NOP3(); _NOP3(); _NOP3(); }
+ 137:delay_x.h     **** static __inline__ void _NOP10(void) { _NOP3(); _NOP3(); _NOP3(); _NOP1(); }
+ 138:delay_x.h     **** static __inline__ void _NOP11(void) { _NOP3(); _NOP3(); _NOP3(); _NOP2(); }
+ 139:delay_x.h     **** static __inline__ void _NOP12(void) { _NOP3(); _NOP3(); _NOP3(); _NOP3(); }
+ 140:delay_x.h     **** 
+ 141:delay_x.h     **** 
+ 142:delay_x.h     **** 
+ 143:delay_x.h     **** /*
+ 144:delay_x.h     ****  *  _ d e l a y _ l o o p _ 3( uint32_t __count )
+ 145:delay_x.h     ****  *
+ 146:delay_x.h     ****  * This delay loop is not used in the code below: It is
+ 147:delay_x.h     ****  * a supplement to the _delay_loop_1() and _delay_loop_2()
+ 148:delay_x.h     ****  * within standard WinAVR <arv/delay.h> giving a wider
+ 149:delay_x.h     ****  * (32 bit) delay range.
+ 150:delay_x.h     ****  *
+ 151:delay_x.h     ****  */
+ 152:delay_x.h     **** static __inline__ void
+ 153:delay_x.h     **** _delay_loop_3( uint32_t __count )
+ 154:delay_x.h     **** {
+ 155:delay_x.h     ****     __asm__ volatile (
+ 156:delay_x.h     ****         "1: sbiw %A0,1" "\n\t"
+ 157:delay_x.h     ****         "sbc %C0,__zero_reg__" "\n\t"
+ 158:delay_x.h     ****         "sbc %D0,__zero_reg__" "\n\t"
+ 159:delay_x.h     ****         "brne 1b"
+ 160:delay_x.h     ****         : "=w" (__count)
+ 161:delay_x.h     ****         : "0" (__count)
+ 162:delay_x.h     ****     );
+ 163:delay_x.h     **** }
+ 164:delay_x.h     **** 
+ 165:delay_x.h     **** 
+ 166:delay_x.h     **** /*
+ 167:delay_x.h     ****  *  _ d e l a y _ l o o p _ 1 _ x( uint8_t __n )
+ 168:delay_x.h     ****  *  _ d e l a y _ l o o p _ 2 _ x( uint16_t  __n )
+ 169:delay_x.h     ****  *  _ d e l a y _ l o o p _ 3 _ x( uint32_t __n )
+ 170:delay_x.h     ****  *
+ 171:delay_x.h     ****  *  These delay loops always have exactly 4(8) cycles per loop.
+ 172:delay_x.h     ****  *  They use a 8/16/32 bit register counter respectively.
+ 173:delay_x.h     ****  *
+ 174:delay_x.h     ****  */
+ 175:delay_x.h     **** static __inline__ void      /* exactly 4 cycles/loop, max 2**8 loops */
+ 176:delay_x.h     **** _delay_loop_1_x( uint8_t __n )
+ 177:delay_x.h     **** {                                               /* cycles per loop      */
+ 178:delay_x.h     ****     __asm__ volatile (                          /* __n..one        zero */
+ 179:delay_x.h     ****         "1: dec  %0"   "\n\t"                   /*    1             1   */
+ 180:delay_x.h     ****         "   breq 2f"   "\n\t"                   /*    1             2   */
+ 181:delay_x.h     ****         "2: brne 1b"   "\n\t"                   /*    2             1   */
+ 182:delay_x.h     ****         : "=r" (__n)                            /*  -----         ----- */
+ 183:delay_x.h     ****         : "0" (__n)                             /*    4             4   */
+ 184:delay_x.h     ****     );
+ 185:delay_x.h     **** }
+ 186:delay_x.h     **** 
+ 187:delay_x.h     **** static __inline__ void      /* exactly 4 cycles/loop, max 2**16 loops */
+ 188:delay_x.h     **** _delay_loop_2_x( uint16_t __n )
+ 189:delay_x.h     **** {                                               /* cycles per loop      */
+ 190:delay_x.h     ****     __asm__ volatile (                          /* __n..one        zero */
+ 191:delay_x.h     ****         "1: sbiw %0,1"   "\n\t"                 /*    2             2   */
+ 192:delay_x.h     ****         "   brne 1b  "   "\n\t"                 /*    2             1   */
+ 193:delay_x.h     ****         "   nop      "   "\n\t"                 /*                  1   */
+ 194:delay_x.h     ****         : "=w" (__n)                            /*  -----         ----- */
+ 195:delay_x.h     ****         : "0" (__n)                             /*    4             4   */
+ 196:delay_x.h     ****     );
+ 197:delay_x.h     **** }
+ 198:delay_x.h     **** 
+ 199:delay_x.h     **** static __inline__ void      /* exactly 8 cycles/loop, max 2**32 loops */
+ 200:delay_x.h     **** _delay_loop_3_x( uint32_t __n )
+ 201:delay_x.h     **** {                                               /* cycles per loop      */
+ 202:delay_x.h     ****     __asm__ volatile (                          /* __n..one        zero */
+ 285               		.loc 2 202 0
+ 286 0016 8FE9      		ldi r24,lo8(-97)
+ 287 0018 96E8      		ldi r25,lo8(-122)
+ 288 001a A1E0      		ldi r26,lo8(1)
+ 289 001c B0E0      		ldi r27,0
+ 290               	/* #APP */
+ 291               	 ;  202 "delay_x.h" 1
+ 292 001e 0197      		1: sbiw r24,1           
+ 293 0020 A109      		   sbc  r26,__zero_reg__
+ 294 0022 B109      		   sbc  r27,__zero_reg__
+ 295 0024 0000      		   nop                  
+ 296 0026 01F0      		   breq 2f              
+ 297 0028 01F4      		2: brne 1b              
+ 298               		
+ 299               	 ;  0 "" 2
+ 300               	.LVL3:
+ 301               	/* #NOAPP */
+ 302               	.LBE333:
+ 303               	.LBE332:
+ 304               	.LBB334:
+ 305               	.LBB335:
+ 306               	.LBB336:
+ 130:delay_x.h     **** static __inline__ void _NOP4 (void) { _NOP3(); _NOP1(); }
+ 307               		.loc 2 130 0
+ 308               	/* #APP */
+ 309               	 ;  130 "delay_x.h" 1
+ 310 002a C895      		lpm    
+ 311               		
+ 312               	 ;  0 "" 2
+ 313               	/* #NOAPP */
+ 314               	.LBE336:
+ 315               	.LBE335:
+ 316               	.LBB337:
+ 317               	.LBB338:
+ 128:delay_x.h     **** static __inline__ void _NOP2 (void) { __asm__ volatile ( "rjmp 1f" "\n\t"  "1:" "\n\t" ); }
+ 318               		.loc 2 128 0
+ 319               	/* #APP */
+ 320               	 ;  128 "delay_x.h" 1
+ 321 002c 0000      		nop    
+ 322               		
+ 323               	 ;  0 "" 2
+ 324               	/* #NOAPP */
+ 325               	.LBE338:
+ 326               	.LBE337:
+ 327               	.LBE334:
+ 328               	.LBE331:
+ 329               	.LBE330:
+ 238:sc_eeprom_tool.c **** 	_delay_ms(50);
+ 239:sc_eeprom_tool.c **** 
+ 240:sc_eeprom_tool.c **** 	EIMSK = 0; PCICR = 0; SPCR = 0; ACSR = 0; EECR = 0; ADCSRA = 0;
+ 330               		.loc 1 240 0
+ 331 002e 1DBA      		out 0x1d,__zero_reg__
+ 332 0030 1092 6800 		sts 104,__zero_reg__
+ 333 0034 1CBC      		out 0x2c,__zero_reg__
+ 334 0036 10BE      		out 0x30,__zero_reg__
+ 335 0038 1FBA      		out 0x1f,__zero_reg__
+ 336 003a 1092 7A00 		sts 122,__zero_reg__
+ 241:sc_eeprom_tool.c **** 	TIMSK0 = 0; TIMSK1 = 0; TIMSK2 = 0; TIMSK3 = 0; UCSR1B = 0; TWCR = 0;
+ 337               		.loc 1 241 0
+ 338 003e 1092 6E00 		sts 110,__zero_reg__
+ 339 0042 1092 6F00 		sts 111,__zero_reg__
+ 340 0046 1092 7000 		sts 112,__zero_reg__
+ 341 004a 1092 7100 		sts 113,__zero_reg__
+ 342 004e 1082      		st Z,__zero_reg__
+ 343 0050 1092 BC00 		sts 188,__zero_reg__
+ 242:sc_eeprom_tool.c **** 	DDRA = 0; DDRB = 0; DDRC = 0; DDRD = 0; DDRE = 0; DDRF = 0;
+ 344               		.loc 1 242 0
+ 345 0054 11B8      		out 0x1,__zero_reg__
+ 346 0056 14B8      		out 0x4,__zero_reg__
+ 347 0058 17B8      		out 0x7,__zero_reg__
+ 348 005a 1AB8      		out 0xa,__zero_reg__
+ 349 005c 1DB8      		out 0xd,__zero_reg__
+ 350 005e 10BA      		out 0x10,__zero_reg__
+ 243:sc_eeprom_tool.c **** 	PORTA = 0; PORTB = 0; PORTC = 0; PORTD = 0; PORTE = 0; PORTF = 0;
+ 351               		.loc 1 243 0
+ 352 0060 12B8      		out 0x2,__zero_reg__
+ 353 0062 15B8      		out 0x5,__zero_reg__
+ 354 0064 18B8      		out 0x8,__zero_reg__
+ 355 0066 1BB8      		out 0xb,__zero_reg__
+ 356 0068 1EB8      		out 0xe,__zero_reg__
+ 357 006a 11BA      		out 0x11,__zero_reg__
+ 244:sc_eeprom_tool.c **** 
+ 245:sc_eeprom_tool.c **** 	__asm volatile("jmp 0x1FC00");
+ 358               		.loc 1 245 0
+ 359               	/* #APP */
+ 360               	 ;  245 "sc_eeprom_tool.c" 1
+ 361 006c 0C94 00FE 		jmp 0x1FC00
+ 362               	 ;  0 "" 2
+ 363               	/* #NOAPP */
+ 364 0070 0895      		ret
+ 365               		.cfi_endproc
+ 366               	.LFE28:
+ 368               		.section	.text.freeRam,"ax",@progbits
+ 369               	.global	freeRam
+ 371               	freeRam:
+ 372               	.LFB29:
+ 246:sc_eeprom_tool.c **** }
+ 247:sc_eeprom_tool.c **** 
+ 248:sc_eeprom_tool.c **** int freeRam() {
+ 373               		.loc 1 248 0
+ 374               		.cfi_startproc
+ 375 0000 CF93      		push r28
+ 376               	.LCFI4:
+ 377               		.cfi_def_cfa_offset 3
+ 378               		.cfi_offset 28, -2
+ 379 0002 DF93      		push r29
+ 380               	.LCFI5:
+ 381               		.cfi_def_cfa_offset 4
+ 382               		.cfi_offset 29, -3
+ 383 0004 00D0      		rcall .
+ 384               	.LCFI6:
+ 385               		.cfi_def_cfa_offset 6
+ 386 0006 CDB7      		in r28,__SP_L__
+ 387 0008 DEB7      		in r29,__SP_H__
+ 388               	.LCFI7:
+ 389               		.cfi_def_cfa_register 28
+ 390               	/* prologue: function */
+ 391               	/* frame size = 2 */
+ 392               	/* stack size = 4 */
+ 393               	.L__stack_usage = 4
+ 249:sc_eeprom_tool.c **** 	extern int __heap_start, *__brkval;
+ 250:sc_eeprom_tool.c **** 	int v;
+ 251:sc_eeprom_tool.c **** 	return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+ 394               		.loc 1 251 0
+ 395 000a 2091 0000 		lds r18,__brkval
+ 396 000e 3091 0000 		lds r19,__brkval+1
+ 397 0012 2115      		cp r18,__zero_reg__
+ 398 0014 3105      		cpc r19,__zero_reg__
+ 399 0016 01F4      		brne .L16
+ 400               		.loc 1 251 0 is_stmt 0 discriminator 2
+ 401 0018 20E0      		ldi r18,lo8(__heap_start)
+ 402 001a 30E0      		ldi r19,hi8(__heap_start)
+ 403               	.L16:
+ 252:sc_eeprom_tool.c **** }
+ 404               		.loc 1 252 0 is_stmt 1 discriminator 4
+ 405 001c CE01      		movw r24,r28
+ 406 001e 0196      		adiw r24,1
+ 407 0020 821B      		sub r24,r18
+ 408 0022 930B      		sbc r25,r19
+ 409               	/* epilogue start */
+ 410 0024 0F90      		pop __tmp_reg__
+ 411 0026 0F90      		pop __tmp_reg__
+ 412 0028 DF91      		pop r29
+ 413 002a CF91      		pop r28
+ 414 002c 0895      		ret
+ 415               		.cfi_endproc
+ 416               	.LFE29:
+ 418               		.section	.text.startup.main,"ax",@progbits
+ 419               	.global	main
+ 421               	main:
+ 422               	.LFB30:
+ 253:sc_eeprom_tool.c **** 
+ 254:sc_eeprom_tool.c **** int main(void) {
+ 423               		.loc 1 254 0
+ 424               		.cfi_startproc
+ 425 0000 CF93      		push r28
+ 426               	.LCFI8:
+ 427               		.cfi_def_cfa_offset 3
+ 428               		.cfi_offset 28, -2
+ 429 0002 DF93      		push r29
+ 430               	.LCFI9:
+ 431               		.cfi_def_cfa_offset 4
+ 432               		.cfi_offset 29, -3
+ 433 0004 CDB7      		in r28,__SP_L__
+ 434 0006 DEB7      		in r29,__SP_H__
+ 435               	.LCFI10:
+ 436               		.cfi_def_cfa_register 28
+ 437 0008 A197      		sbiw r28,33
+ 438               	.LCFI11:
+ 439               		.cfi_def_cfa_offset 37
+ 440 000a 0FB6      		in __tmp_reg__,__SREG__
+ 441 000c F894      		cli
+ 442 000e DEBF      		out __SP_H__,r29
+ 443 0010 0FBE      		out __SREG__,__tmp_reg__
+ 444 0012 CDBF      		out __SP_L__,r28
+ 445               	/* prologue: function */
+ 446               	/* frame size = 33 */
+ 447               	/* stack size = 35 */
+ 448               	.L__stack_usage = 35
+ 449               	.LVL4:
+ 255:sc_eeprom_tool.c **** 	int16_t command = -1;
+ 256:sc_eeprom_tool.c **** 	uint16_t freemem;
+ 257:sc_eeprom_tool.c **** 	uint32_t cur_status;
+ 258:sc_eeprom_tool.c **** 	uint8_t offset_low;
+ 259:sc_eeprom_tool.c **** 	uint8_t offset_high;
+ 260:sc_eeprom_tool.c **** 	uint8_t write_length_low;
+ 261:sc_eeprom_tool.c **** 	uint8_t write_length_high;
+ 262:sc_eeprom_tool.c **** 	uint16_t write_length;
+ 263:sc_eeprom_tool.c **** 	uint8_t write_buffer[32];
+ 264:sc_eeprom_tool.c **** 
+ 265:sc_eeprom_tool.c **** 	// set for 8 MHz clock because of 3.3v regulator
+ 266:sc_eeprom_tool.c **** 	CPU_PRESCALE(1);
+ 450               		.loc 1 266 0
+ 451 0014 80E8      		ldi r24,lo8(-128)
+ 452 0016 8093 6100 		sts 97,r24
+ 453 001a 91E0      		ldi r25,lo8(1)
+ 454 001c 9093 6100 		sts 97,r25
+ 267:sc_eeprom_tool.c **** 
+ 268:sc_eeprom_tool.c **** 	// set for 16 MHz clock
+ 269:sc_eeprom_tool.c **** 	//CPU_PRESCALE(0);
+ 270:sc_eeprom_tool.c **** 
+ 271:sc_eeprom_tool.c **** 	//disable JTAG
+ 272:sc_eeprom_tool.c **** 	MCUCR = (1<<JTD) | (1<<IVCE) | (0<<PUD);
+ 455               		.loc 1 272 0
+ 456 0020 91E8      		ldi r25,lo8(-127)
+ 457 0022 95BF      		out 0x35,r25
+ 273:sc_eeprom_tool.c **** 	MCUCR = (1<<JTD) | (0<<IVSEL) | (0<<IVCE) | (0<<PUD);
+ 458               		.loc 1 273 0
+ 459 0024 85BF      		out 0x35,r24
+ 274:sc_eeprom_tool.c **** 
+ 275:sc_eeprom_tool.c **** 	// set all i/o lines to input
+ 276:sc_eeprom_tool.c **** 	releaseports();
+ 460               		.loc 1 276 0
+ 461 0026 0E94 0000 		call releaseports
+ 462               	.LVL5:
+ 463               	.LBB386:
+ 464               	.LBB387:
+ 465               		.file 3 "SPI_AVR8.h"
+   1:SPI_AVR8.h    **** /*
+   2:SPI_AVR8.h    ****              LUFA Library
+   3:SPI_AVR8.h    ****      Copyright (C) Dean Camera, 2012.
+   4:SPI_AVR8.h    **** 
+   5:SPI_AVR8.h    ****   dean [at] fourwalledcubicle [dot] com
+   6:SPI_AVR8.h    ****            www.lufa-lib.org
+   7:SPI_AVR8.h    **** */
+   8:SPI_AVR8.h    **** 
+   9:SPI_AVR8.h    **** /*
+  10:SPI_AVR8.h    ****   Copyright 2012  Dean Camera (dean [at] fourwalledcubicle [dot] com)
+  11:SPI_AVR8.h    **** 
+  12:SPI_AVR8.h    ****   Permission to use, copy, modify, distribute, and sell this
+  13:SPI_AVR8.h    ****   software and its documentation for any purpose is hereby granted
+  14:SPI_AVR8.h    ****   without fee, provided that the above copyright notice appear in
+  15:SPI_AVR8.h    ****   all copies and that both that the copyright notice and this
+  16:SPI_AVR8.h    ****   permission notice and warranty disclaimer appear in supporting
+  17:SPI_AVR8.h    ****   documentation, and that the name of the author not be used in
+  18:SPI_AVR8.h    ****   advertising or publicity pertaining to distribution of the
+  19:SPI_AVR8.h    ****   software without specific, written prior permission.
+  20:SPI_AVR8.h    **** 
+  21:SPI_AVR8.h    ****   The author disclaim all warranties with regard to this
+  22:SPI_AVR8.h    ****   software, including all implied warranties of merchantability
+  23:SPI_AVR8.h    ****   and fitness.  In no event shall the author be liable for any
+  24:SPI_AVR8.h    ****   special, indirect or consequential damages or any damages
+  25:SPI_AVR8.h    ****   whatsoever resulting from loss of use, data or profits, whether
+  26:SPI_AVR8.h    ****   in an action of contract, negligence or other tortious action,
+  27:SPI_AVR8.h    ****   arising out of or in connection with the use or performance of
+  28:SPI_AVR8.h    ****   this software.
+  29:SPI_AVR8.h    **** */
+  30:SPI_AVR8.h    **** 
+  31:SPI_AVR8.h    **** /** \file
+  32:SPI_AVR8.h    ****  *  \brief SPI Peripheral Driver (AVR8)
+  33:SPI_AVR8.h    ****  *
+  34:SPI_AVR8.h    ****  *  On-chip SPI driver for the 8-bit AVR microcontrollers.
+  35:SPI_AVR8.h    ****  *
+  36:SPI_AVR8.h    ****  *  \note This file should not be included directly. It is automatically included as needed by the 
+  37:SPI_AVR8.h    ****  *        dispatch header located in LUFA/Drivers/Peripheral/SPI.h.
+  38:SPI_AVR8.h    ****  */
+  39:SPI_AVR8.h    **** 
+  40:SPI_AVR8.h    **** /** \ingroup Group_SPI
+  41:SPI_AVR8.h    ****  *  \defgroup Group_SPI_AVR8 SPI Peripheral Driver (AVR8)
+  42:SPI_AVR8.h    ****  *
+  43:SPI_AVR8.h    ****  *  \section Sec_ModDescription Module Description
+  44:SPI_AVR8.h    ****  *  Driver for the hardware SPI port available on most 8-bit AVR microcontroller models. This
+  45:SPI_AVR8.h    ****  *  module provides an easy to use driver for the setup and transfer of data over the
+  46:SPI_AVR8.h    ****  *  AVR's SPI port.
+  47:SPI_AVR8.h    ****  *
+  48:SPI_AVR8.h    ****  *  \note This file should not be included directly. It is automatically included as needed by the 
+  49:SPI_AVR8.h    ****  *        dispatch header located in LUFA/Drivers/Peripheral/SPI.h.
+  50:SPI_AVR8.h    ****  *
+  51:SPI_AVR8.h    ****  *  \section Sec_ExampleUsage Example Usage
+  52:SPI_AVR8.h    ****  *  The following snippet is an example of how this module may be used within a typical
+  53:SPI_AVR8.h    ****  *  application.
+  54:SPI_AVR8.h    ****  *
+  55:SPI_AVR8.h    ****  *  \code
+  56:SPI_AVR8.h    ****  *      // Initialize the SPI driver before first use
+  57:SPI_AVR8.h    ****  *      SPI_Init(SPI_SPEED_FCPU_DIV_2 | SPI_ORDER_MSB_FIRST | SPI_SCK_LEAD_FALLING |
+  58:SPI_AVR8.h    ****  *               SPI_SAMPLE_TRAILING | SPI_MODE_MASTER);
+  59:SPI_AVR8.h    ****  *
+  60:SPI_AVR8.h    ****  *      // Send several bytes, ignoring the returned data
+  61:SPI_AVR8.h    ****  *      SPI_SendByte(0x01);
+  62:SPI_AVR8.h    ****  *      SPI_SendByte(0x02);
+  63:SPI_AVR8.h    ****  *      SPI_SendByte(0x03);
+  64:SPI_AVR8.h    ****  *
+  65:SPI_AVR8.h    ****  *      // Receive several bytes, sending a dummy 0x00 byte each time
+  66:SPI_AVR8.h    ****  *      uint8_t Byte1 = SPI_ReceiveByte();
+  67:SPI_AVR8.h    ****  *      uint8_t Byte2 = SPI_ReceiveByte();
+  68:SPI_AVR8.h    ****  *      uint8_t Byte3 = SPI_ReceiveByte();
+  69:SPI_AVR8.h    ****  *
+  70:SPI_AVR8.h    ****  *      // Send a byte, and store the received byte from the same transaction
+  71:SPI_AVR8.h    ****  *      uint8_t ResponseByte = SPI_TransferByte(0xDC);
+  72:SPI_AVR8.h    ****  *  \endcode
+  73:SPI_AVR8.h    ****  *
+  74:SPI_AVR8.h    ****  *  @{
+  75:SPI_AVR8.h    ****  */
+  76:SPI_AVR8.h    **** 
+  77:SPI_AVR8.h    **** #ifndef __SPI_AVR8_H__
+  78:SPI_AVR8.h    **** #define __SPI_AVR8_H__
+  79:SPI_AVR8.h    **** 
+  80:SPI_AVR8.h    **** 	/* Includes: */
+  81:SPI_AVR8.h    **** 		//#include "../../../Common/Common.h"
+  82:SPI_AVR8.h    **** 
+  83:SPI_AVR8.h    **** 	/* Enable C linkage for C++ Compilers: */
+  84:SPI_AVR8.h    **** 		#if defined(__cplusplus)
+  85:SPI_AVR8.h    **** 			extern "C" {
+  86:SPI_AVR8.h    **** 		#endif
+  87:SPI_AVR8.h    **** 
+  88:SPI_AVR8.h    **** 	/* Private Interface - For use in library only: */
+  89:SPI_AVR8.h    **** 	#if !defined(__DOXYGEN__)
+  90:SPI_AVR8.h    **** 		/* Macros: */
+  91:SPI_AVR8.h    **** 			#define SPI_USE_DOUBLESPEED            (1 << SPE)
+  92:SPI_AVR8.h    **** 	#endif
+  93:SPI_AVR8.h    **** 
+  94:SPI_AVR8.h    **** 	/* Public Interface - May be used in end-application: */
+  95:SPI_AVR8.h    **** 		/* Macros: */
+  96:SPI_AVR8.h    **** 			//! Enable the SPI Interrupt
+  97:SPI_AVR8.h    **** 			#define Enable_SPI_Interrupt			SPCR |= (1 << SPIE)
+  98:SPI_AVR8.h    **** 			//! Disable the SPI Interrupt
+  99:SPI_AVR8.h    **** 			#define Disable_SPI_Interrupt			SPCR &= ~(1 << SPIE)
+ 100:SPI_AVR8.h    **** 
+ 101:SPI_AVR8.h    **** 			/** Indicates that the function returns a value which should not be ignored by the user code. Wh
+ 102:SPI_AVR8.h    **** 				*  applied, any ignored return value from calling the function will produce a compiler warning.
+ 103:SPI_AVR8.h    **** 				*/
+ 104:SPI_AVR8.h    **** 			#define ATTR_WARN_UNUSED_RESULT      __attribute__ ((warn_unused_result))
+ 105:SPI_AVR8.h    **** 
+ 106:SPI_AVR8.h    **** 			/** Forces the compiler to inline the specified function. When applied, the given function will 
+ 107:SPI_AVR8.h    **** 				*  in-lined under all circumstances.
+ 108:SPI_AVR8.h    **** 				*/
+ 109:SPI_AVR8.h    **** 			#define ATTR_ALWAYS_INLINE           __attribute__ ((always_inline))
+ 110:SPI_AVR8.h    **** 
+ 111:SPI_AVR8.h    **** 			/** \name SPI Prescaler Configuration Masks */
+ 112:SPI_AVR8.h    **** 			//@{
+ 113:SPI_AVR8.h    **** 			/** SPI prescaler mask for \ref SPI_Init(). Divides the system clock by a factor of 2. */
+ 114:SPI_AVR8.h    **** 			#define SPI_SPEED_FCPU_DIV_2           SPI_USE_DOUBLESPEED
+ 115:SPI_AVR8.h    **** 
+ 116:SPI_AVR8.h    **** 			/** SPI prescaler mask for \ref SPI_Init(). Divides the system clock by a factor of 4. */
+ 117:SPI_AVR8.h    **** 			#define SPI_SPEED_FCPU_DIV_4           0
+ 118:SPI_AVR8.h    **** 
+ 119:SPI_AVR8.h    **** 			/** SPI prescaler mask for \ref SPI_Init(). Divides the system clock by a factor of 8. */
+ 120:SPI_AVR8.h    **** 			#define SPI_SPEED_FCPU_DIV_8           (SPI_USE_DOUBLESPEED | (1 << SPR0))
+ 121:SPI_AVR8.h    **** 
+ 122:SPI_AVR8.h    **** 			/** SPI prescaler mask for \ref SPI_Init(). Divides the system clock by a factor of 16. */
+ 123:SPI_AVR8.h    **** 			#define SPI_SPEED_FCPU_DIV_16          (1 << SPR0)
+ 124:SPI_AVR8.h    **** 
+ 125:SPI_AVR8.h    **** 			/** SPI prescaler mask for \ref SPI_Init(). Divides the system clock by a factor of 32. */
+ 126:SPI_AVR8.h    **** 			#define SPI_SPEED_FCPU_DIV_32          (SPI_USE_DOUBLESPEED | (1 << SPR1))
+ 127:SPI_AVR8.h    **** 
+ 128:SPI_AVR8.h    **** 			/** SPI prescaler mask for \ref SPI_Init(). Divides the system clock by a factor of 64. */
+ 129:SPI_AVR8.h    **** 			#define SPI_SPEED_FCPU_DIV_64          (SPI_USE_DOUBLESPEED | (1 << SPR1) | (1 << SPR0))
+ 130:SPI_AVR8.h    **** 
+ 131:SPI_AVR8.h    **** 			/** SPI prescaler mask for \ref SPI_Init(). Divides the system clock by a factor of 128. */
+ 132:SPI_AVR8.h    **** 			#define SPI_SPEED_FCPU_DIV_128         ((1 << SPR1) | (1 << SPR0))
+ 133:SPI_AVR8.h    **** 			//@}
+ 134:SPI_AVR8.h    **** 
+ 135:SPI_AVR8.h    **** 			/** \name SPI SCK Polarity Configuration Masks */
+ 136:SPI_AVR8.h    **** 			//@{
+ 137:SPI_AVR8.h    **** 			/** SPI clock polarity mask for \ref SPI_Init(). Indicates that the SCK should lead on the risin
+ 138:SPI_AVR8.h    **** 			#define SPI_SCK_LEAD_RISING            (0 << CPOL)
+ 139:SPI_AVR8.h    **** 
+ 140:SPI_AVR8.h    **** 			/** SPI clock polarity mask for \ref SPI_Init(). Indicates that the SCK should lead on the falli
+ 141:SPI_AVR8.h    **** 			#define SPI_SCK_LEAD_FALLING           (1 << CPOL)
+ 142:SPI_AVR8.h    **** 			//@}
+ 143:SPI_AVR8.h    **** 
+ 144:SPI_AVR8.h    **** 			/** \name SPI Sample Edge Configuration Masks */
+ 145:SPI_AVR8.h    **** 			//@{
+ 146:SPI_AVR8.h    **** 			/** SPI data sample mode mask for \ref SPI_Init(). Indicates that the data should sampled on the
+ 147:SPI_AVR8.h    **** 			#define SPI_SAMPLE_LEADING             (0 << CPHA)
+ 148:SPI_AVR8.h    **** 
+ 149:SPI_AVR8.h    **** 			/** SPI data sample mode mask for \ref SPI_Init(). Indicates that the data should be sampled on 
+ 150:SPI_AVR8.h    **** 			#define SPI_SAMPLE_TRAILING            (1 << CPHA)
+ 151:SPI_AVR8.h    **** 			//@}
+ 152:SPI_AVR8.h    **** 
+ 153:SPI_AVR8.h    **** 			/** \name SPI Data Ordering Configuration Masks */
+ 154:SPI_AVR8.h    **** 			//@{
+ 155:SPI_AVR8.h    **** 			/** SPI data order mask for \ref SPI_Init(). Indicates that data should be shifted out MSB first
+ 156:SPI_AVR8.h    **** 			#define SPI_ORDER_MSB_FIRST            (0 << DORD)
+ 157:SPI_AVR8.h    **** 
+ 158:SPI_AVR8.h    **** 			/** SPI data order mask for \ref SPI_Init(). Indicates that data should be shifted out LSB first
+ 159:SPI_AVR8.h    **** 			#define SPI_ORDER_LSB_FIRST            (1 << DORD)
+ 160:SPI_AVR8.h    **** 			//@}
+ 161:SPI_AVR8.h    **** 
+ 162:SPI_AVR8.h    **** 			/** \name SPI Mode Configuration Masks */
+ 163:SPI_AVR8.h    **** 			//@{
+ 164:SPI_AVR8.h    **** 			/** SPI mode mask for \ref SPI_Init(). Indicates that the SPI interface should be initialized in
+ 165:SPI_AVR8.h    **** 			#define SPI_MODE_SLAVE                 (0 << MSTR)
+ 166:SPI_AVR8.h    **** 
+ 167:SPI_AVR8.h    **** 			/** SPI mode mask for \ref SPI_Init(). Indicates that the SPI interface should be initialized in
+ 168:SPI_AVR8.h    **** 			#define SPI_MODE_MASTER                (1 << MSTR)
+ 169:SPI_AVR8.h    **** 			//@}
+ 170:SPI_AVR8.h    **** 
+ 171:SPI_AVR8.h    **** 		/* Inline Functions: */
+ 172:SPI_AVR8.h    **** 			/** Initializes the SPI subsystem, ready for transfers. Must be called before calling any other
+ 173:SPI_AVR8.h    **** 			 *  SPI routines.
+ 174:SPI_AVR8.h    **** 			 *
+ 175:SPI_AVR8.h    **** 			 *  \param[in] SPIOptions  SPI Options, a mask consisting of one of each of the \c SPI_SPEED_*,
+ 176:SPI_AVR8.h    **** 			 *                         \c SPI_SCK_*, \c SPI_SAMPLE_*, \c SPI_ORDER_* and \c SPI_MODE_* masks
+ 177:SPI_AVR8.h    **** 			 */
+ 178:SPI_AVR8.h    **** 			static inline void SPI_Init(const uint8_t SPIOptions)
+ 179:SPI_AVR8.h    **** 			{
+ 180:SPI_AVR8.h    **** 				SPCR = (0<<SPE);            // Disable the SPI to be able to configure the #SS line as an input
+ 466               		.loc 3 180 0
+ 467 002a 1CBC      		out 0x2c,__zero_reg__
+ 181:SPI_AVR8.h    **** 
+ 182:SPI_AVR8.h    **** 				/* Prevent high rise times on PB.0 (/SS) from forcing a change to SPI slave mode */
+ 183:SPI_AVR8.h    **** 				DDRB  |= (1 << 0);
+ 468               		.loc 3 183 0
+ 469 002c 209A      		sbi 0x4,0
+ 184:SPI_AVR8.h    **** 				PORTB |= (1 << 0);
+ 470               		.loc 3 184 0
+ 471 002e 289A      		sbi 0x5,0
+ 185:SPI_AVR8.h    **** 
+ 186:SPI_AVR8.h    **** 				SPCR = (1<<MSTR);           // select the master mode prior to enable the SPI
+ 472               		.loc 3 186 0
+ 473 0030 80E1      		ldi r24,lo8(16)
+ 474 0032 8CBD      		out 0x2c,r24
+ 187:SPI_AVR8.h    **** 
+ 188:SPI_AVR8.h    **** 				DDRB  |=  ((1 << 1) | (1 << 2));
+ 475               		.loc 3 188 0
+ 476 0034 84B1      		in r24,0x4
+ 477 0036 8660      		ori r24,lo8(6)
+ 478 0038 84B9      		out 0x4,r24
+ 189:SPI_AVR8.h    **** 				DDRB  &= ~(1 << 3);
+ 479               		.loc 3 189 0
+ 480 003a 2398      		cbi 0x4,3
+ 190:SPI_AVR8.h    **** 				PORTB |=  (1 << 3);
+ 481               		.loc 3 190 0
+ 482 003c 2B9A      		sbi 0x5,3
+ 191:SPI_AVR8.h    **** 
+ 192:SPI_AVR8.h    **** 				if (SPIOptions & SPI_USE_DOUBLESPEED)
+ 193:SPI_AVR8.h    **** 				  SPSR |= (1 << SPI2X);
+ 483               		.loc 3 193 0
+ 484 003e 8DB5      		in r24,0x2d
+ 485 0040 8160      		ori r24,lo8(1)
+ 486 0042 8DBD      		out 0x2d,r24
+ 194:SPI_AVR8.h    **** 				else
+ 195:SPI_AVR8.h    **** 				  SPSR &= ~(1 << SPI2X);
+ 196:SPI_AVR8.h    **** 
+ 197:SPI_AVR8.h    **** 				/* Switch /SS to input mode after configuration to allow for forced mode changes */
+ 198:SPI_AVR8.h    **** 				//DDRB &= ~(1 << 0);
+ 199:SPI_AVR8.h    **** 
+ 200:SPI_AVR8.h    **** 				SPCR  = ((1 << SPE) | SPIOptions);
+ 487               		.loc 3 200 0
+ 488 0044 82E5      		ldi r24,lo8(82)
+ 489 0046 8CBD      		out 0x2c,r24
+ 490               	.LBE387:
+ 491               	.LBE386:
+ 277:sc_eeprom_tool.c **** 
+ 278:sc_eeprom_tool.c **** 	//Init SPI
+ 279:sc_eeprom_tool.c **** 	SPI_Init(SPI_SPEED_FCPU_DIV_32 | SPI_ORDER_MSB_FIRST | SPI_SCK_LEAD_RISING | SPI_SAMPLE_LEADING | 
+ 280:sc_eeprom_tool.c **** 	hwspi_init();
+ 492               		.loc 1 280 0
+ 493 0048 0E94 0000 		call hwspi_init
+ 494               	.LVL6:
+ 281:sc_eeprom_tool.c **** 
+ 282:sc_eeprom_tool.c **** 	// Initialize the USB, and then wait for the host to set configuration.
+ 283:sc_eeprom_tool.c **** 	// If the Teensy is powered without a PC connected to the USB port,
+ 284:sc_eeprom_tool.c **** 	// this will wait forever.
+ 285:sc_eeprom_tool.c **** 	usb_init();
+ 495               		.loc 1 285 0
+ 496 004c 0E94 0000 		call usb_init
+ 497               	.LVL7:
+ 498               	.L18:
+ 286:sc_eeprom_tool.c **** 
+ 287:sc_eeprom_tool.c **** 	while (!usb_configured()) /* wait */ ;
+ 499               		.loc 1 287 0 discriminator 1
+ 500 0050 0E94 0000 		call usb_configured
+ 501               	.LVL8:
+ 502 0054 8823      		tst r24
+ 503 0056 01F0      		breq .L18
+ 504               	.LVL9:
+ 505               	.LBB388:
+ 506               	.LBB389:
+ 507               	.LBB390:
+ 508               	.LBB391:
+ 509               		.loc 2 202 0
+ 510 0058 8FE7      		ldi r24,lo8(127)
+ 511 005a 94E8      		ldi r25,lo8(-124)
+ 512 005c AEE1      		ldi r26,lo8(30)
+ 513 005e B0E0      		ldi r27,0
+ 514               	/* #APP */
+ 515               	 ;  202 "delay_x.h" 1
+ 516 0060 0197      		1: sbiw r24,1           
+ 517 0062 A109      		   sbc  r26,__zero_reg__
+ 518 0064 B109      		   sbc  r27,__zero_reg__
+ 519 0066 0000      		   nop                  
+ 520 0068 01F0      		   breq 2f              
+ 521 006a 01F4      		2: brne 1b              
+ 522               		
+ 523               	 ;  0 "" 2
+ 524               	.LVL10:
+ 525               	/* #NOAPP */
+ 526               	.LBE391:
+ 527               	.LBE390:
+ 528               	.LBB392:
+ 529               	.LBB393:
+ 530               	.LBB394:
+ 130:delay_x.h     **** static __inline__ void _NOP4 (void) { _NOP3(); _NOP1(); }
+ 531               		.loc 2 130 0
+ 532               	/* #APP */
+ 533               	 ;  130 "delay_x.h" 1
+ 534 006c C895      		lpm    
+ 535               		
+ 536               	 ;  0 "" 2
+ 537               	/* #NOAPP */
+ 538               	.LBE394:
+ 539               	.LBE393:
+ 540               	.LBB395:
+ 541               	.LBB396:
+ 128:delay_x.h     **** static __inline__ void _NOP2 (void) { __asm__ volatile ( "rjmp 1f" "\n\t"  "1:" "\n\t" ); }
+ 542               		.loc 2 128 0
+ 543               	/* #APP */
+ 544               	 ;  128 "delay_x.h" 1
+ 545 006e 0000      		nop    
+ 546               		
+ 547               	 ;  0 "" 2
+ 548               	/* #NOAPP */
+ 549               	.LBE396:
+ 550               	.LBE395:
+ 551               	.LBE392:
+ 552               	.LBE389:
+ 553               	.LBE388:
+ 554               	.LBB397:
+ 555               	.LBB398:
+ 201:SPI_AVR8.h    **** 			}
+ 202:SPI_AVR8.h    **** 
+ 203:SPI_AVR8.h    **** 			/** Turns off the SPI driver, disabling and returning used hardware to their default configurati
+ 204:SPI_AVR8.h    **** 			static inline void SPI_Disable(void)
+ 205:SPI_AVR8.h    **** 			{
+ 206:SPI_AVR8.h    **** 				DDRB  &= ~((1 << 1) | (1 << 2));
+ 207:SPI_AVR8.h    **** 				PORTB &= ~((1 << 0) | (1 << 3));
+ 208:SPI_AVR8.h    **** 
+ 209:SPI_AVR8.h    **** 				SPCR   = 0;
+ 210:SPI_AVR8.h    **** 				SPSR   = 0;
+ 211:SPI_AVR8.h    **** 			}
+ 212:SPI_AVR8.h    **** 
+ 213:SPI_AVR8.h    **** 			/** Retrieves the currently selected SPI mode, once the SPI interface has been configured.
+ 214:SPI_AVR8.h    **** 			 *
+ 215:SPI_AVR8.h    **** 			 *  \return \ref SPI_MODE_MASTER if the interface is currently in SPI Master mode, \ref SPI_MODE
+ 216:SPI_AVR8.h    **** 			 */
+ 217:SPI_AVR8.h    **** 			static inline uint8_t SPI_GetCurrentMode(void) ATTR_ALWAYS_INLINE;
+ 218:SPI_AVR8.h    **** 			static inline uint8_t SPI_GetCurrentMode(void)
+ 219:SPI_AVR8.h    **** 			{
+ 220:SPI_AVR8.h    **** 				return (SPCR & SPI_MODE_MASTER);
+ 221:SPI_AVR8.h    **** 			}
+ 222:SPI_AVR8.h    **** 
+ 223:SPI_AVR8.h    **** 			/** Sends and receives a byte through the SPI interface, blocking until the transfer is complete
+ 224:SPI_AVR8.h    **** 			 *
+ 225:SPI_AVR8.h    **** 			 *  \param[in] Byte  Byte to send through the SPI interface.
+ 226:SPI_AVR8.h    **** 			 *
+ 227:SPI_AVR8.h    **** 			 *  \return Response byte from the attached SPI device.
+ 228:SPI_AVR8.h    **** 			 */
+ 229:SPI_AVR8.h    **** 			static inline uint8_t SPI_TransferByte(const uint8_t Byte) ATTR_ALWAYS_INLINE;
+ 230:SPI_AVR8.h    **** 			static inline uint8_t SPI_TransferByte(const uint8_t Byte)
+ 231:SPI_AVR8.h    **** 			{
+ 232:SPI_AVR8.h    **** 				SPDR = Byte;
+ 233:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 234:SPI_AVR8.h    **** 				return SPDR;
+ 235:SPI_AVR8.h    **** 			}
+ 236:SPI_AVR8.h    **** 
+ 237:SPI_AVR8.h    **** 			/** Sends a byte through the SPI interface, blocking until the transfer is complete. The respons
+ 238:SPI_AVR8.h    **** 			 *  byte sent to from the attached SPI device is ignored.
+ 239:SPI_AVR8.h    **** 			 *
+ 240:SPI_AVR8.h    **** 			 *  \param[in] Byte  Byte to send through the SPI interface.
+ 241:SPI_AVR8.h    **** 			 */
+ 242:SPI_AVR8.h    **** 			static inline void SPI_SendByte(const uint8_t Byte) ATTR_ALWAYS_INLINE;
+ 243:SPI_AVR8.h    **** 			static inline void SPI_SendByte(const uint8_t Byte)
+ 244:SPI_AVR8.h    **** 			{
+ 245:SPI_AVR8.h    **** 				SPDR = Byte;
+ 556               		.loc 3 245 0
+ 557 0070 99EA      		ldi r25,lo8(-87)
+ 558 0072 D92E      		mov r13,r25
+ 559               	.LBE398:
+ 560               	.LBE397:
+ 561               	.LBB400:
+ 562               	.LBB401:
+ 563 0074 23EA      		ldi r18,lo8(-93)
+ 564 0076 C22E      		mov r12,r18
+ 565               	.LBE401:
+ 566               	.LBE400:
+ 567               	.LBB403:
+ 568               	.LBB404:
+ 569 0078 38EA      		ldi r19,lo8(-88)
+ 570 007a B32E      		mov r11,r19
+ 571 007c 8E01      		movw r16,r28
+ 572 007e 0F5F      		subi r16,-1
+ 573 0080 1F4F      		sbci r17,-1
+ 574               	.LBE404:
+ 575               	.LBE403:
+ 576               	.LBB406:
+ 577               	.LBB407:
+ 578 0082 44EA      		ldi r20,lo8(-92)
+ 579 0084 A42E      		mov r10,r20
+ 580               	.LVL11:
+ 581               	.L52:
+ 582               	.LBE407:
+ 583               	.LBE406:
+ 288:sc_eeprom_tool.c **** 
+ 289:sc_eeprom_tool.c **** 	// Wait an extra second for the PC's operating system to load drivers
+ 290:sc_eeprom_tool.c **** 	// and do whatever it does to actually be ready for input
+ 291:sc_eeprom_tool.c **** 	_delay_ms(1000);
+ 292:sc_eeprom_tool.c **** 
+ 293:sc_eeprom_tool.c **** 	while (1) {
+ 294:sc_eeprom_tool.c **** 		// discard anything that was received prior.  Sometimes the
+ 295:sc_eeprom_tool.c **** 		// operating system or other software will send a modem
+ 296:sc_eeprom_tool.c **** 		// "AT command", which can still be buffered.
+ 297:sc_eeprom_tool.c **** 		usb_serial_flush_input();
+ 584               		.loc 1 297 0
+ 585 0086 0E94 0000 		call usb_serial_flush_input
+ 586               	.LVL12:
+ 587               	.L19:
+ 298:sc_eeprom_tool.c **** 
+ 299:sc_eeprom_tool.c **** 		while (usb_configured()) { // is user still connected?
+ 588               		.loc 1 299 0
+ 589 008a 0E94 0000 		call usb_configured
+ 590               	.LVL13:
+ 591 008e 8823      		tst r24
+ 592 0090 01F0      		breq .L52
+ 300:sc_eeprom_tool.c **** 			command = usb_serial_getchar();
+ 593               		.loc 1 300 0
+ 594 0092 0E94 0000 		call usb_serial_getchar
+ 595               	.LVL14:
+ 301:sc_eeprom_tool.c **** 			if (command == -1) continue;
+ 596               		.loc 1 301 0
+ 597 0096 8F3F      		cpi r24,-1
+ 598 0098 2FEF      		ldi r18,-1
+ 599 009a 9207      		cpc r25,r18
+ 600 009c 01F0      		breq .L19
+ 302:sc_eeprom_tool.c **** 
+ 303:sc_eeprom_tool.c **** 			switch (command) {
+ 601               		.loc 1 303 0
+ 602 009e 8230      		cpi r24,2
+ 603 00a0 9105      		cpc r25,__zero_reg__
+ 604 00a2 01F0      		breq .L21
+ 605 00a4 04F4      		brge .L22
+ 606 00a6 0097      		sbiw r24,0
+ 607 00a8 01F0      		breq .L23
+ 608 00aa 0197      		sbiw r24,1
+ 609 00ac 01F4      		brne .L19
+ 304:sc_eeprom_tool.c **** 			case CMD_PING1:
+ 305:sc_eeprom_tool.c **** 				usb_serial_putchar(VERSION_MAJOR);
+ 306:sc_eeprom_tool.c **** 				break;
+ 307:sc_eeprom_tool.c **** 
+ 308:sc_eeprom_tool.c **** 			case CMD_PING2:
+ 309:sc_eeprom_tool.c **** 				freemem = freeRam();
+ 610               		.loc 1 309 0
+ 611 00ae 0E94 0000 		call freeRam
+ 612               	.LVL15:
+ 613 00b2 F82E      		mov r15,r24
+ 614               	.LVL16:
+ 310:sc_eeprom_tool.c **** 				usb_serial_putchar(VERSION_MINOR);
+ 615               		.loc 1 310 0
+ 616 00b4 81E0      		ldi r24,lo8(1)
+ 617 00b6 99A3      		std Y+33,r25
+ 618 00b8 0E94 0000 		call usb_serial_putchar
+ 619               	.LVL17:
+ 311:sc_eeprom_tool.c **** 				usb_serial_putchar((freemem >> 8) & 0xFF);
+ 620               		.loc 1 311 0
+ 621 00bc 99A1      		ldd r25,Y+33
+ 622 00be 892F      		mov r24,r25
+ 623 00c0 0E94 0000 		call usb_serial_putchar
+ 624               	.LVL18:
+ 312:sc_eeprom_tool.c **** 				usb_serial_putchar(freemem & 0xFF);
+ 625               		.loc 1 312 0
+ 626 00c4 8F2D      		mov r24,r15
+ 627 00c6 00C0      		rjmp .L76
+ 628               	.LVL19:
+ 629               	.L22:
+ 303:sc_eeprom_tool.c **** 			case CMD_PING1:
+ 630               		.loc 1 303 0
+ 631 00c8 8430      		cpi r24,4
+ 632 00ca 9105      		cpc r25,__zero_reg__
+ 633 00cc 01F4      		brne .+2
+ 634 00ce 00C0      		rjmp .L25
+ 635 00d0 04F0      		brlt .L26
+ 636 00d2 0597      		sbiw r24,5
+ 637 00d4 01F4      		brne .L19
+ 313:sc_eeprom_tool.c **** 				break;
+ 314:sc_eeprom_tool.c **** 
+ 315:sc_eeprom_tool.c **** 			case CMD_GET_STATUS:
+ 316:sc_eeprom_tool.c **** 				HWSPI_CS_LOW;
+ 317:sc_eeprom_tool.c **** 				SPI_SendByte(PS3_SC_EEPROM_GET_STATUS_CMD);
+ 318:sc_eeprom_tool.c **** 				SPI_SendByte(0);
+ 319:sc_eeprom_tool.c **** 				SPI_SendByte(0);
+ 320:sc_eeprom_tool.c **** 				SPI_SendByte(0);
+ 321:sc_eeprom_tool.c **** 				for(uint8_t i = 0; i < 4; i++)
+ 322:sc_eeprom_tool.c **** 				{
+ 323:sc_eeprom_tool.c **** 					usb_serial_putchar(SPI_ReceiveByte());
+ 324:sc_eeprom_tool.c **** 				}
+ 325:sc_eeprom_tool.c **** 				HWSPI_CS_HIGH;
+ 326:sc_eeprom_tool.c **** 				break;
+ 327:sc_eeprom_tool.c **** 
+ 328:sc_eeprom_tool.c **** 			case CMD_DUMP_EEPROM:
+ 329:sc_eeprom_tool.c **** 				HWSPI_CS_LOW;
+ 330:sc_eeprom_tool.c **** 
+ 331:sc_eeprom_tool.c **** 				SPI_SendByte(PS3_SC_EEPROM_READ_CMD);
+ 332:sc_eeprom_tool.c **** 				SPI_SendByte(0);
+ 333:sc_eeprom_tool.c **** 				SPI_SendByte(0);
+ 334:sc_eeprom_tool.c **** 
+ 335:sc_eeprom_tool.c **** 				for (uint16_t k = 0; k < 0x8000; ++k)
+ 336:sc_eeprom_tool.c **** 				{
+ 337:sc_eeprom_tool.c **** 					usb_serial_putchar(SPI_ReceiveByte());
+ 338:sc_eeprom_tool.c **** 				}
+ 339:sc_eeprom_tool.c **** 
+ 340:sc_eeprom_tool.c **** 				HWSPI_CS_HIGH;
+ 341:sc_eeprom_tool.c **** 				break;
+ 342:sc_eeprom_tool.c **** 
+ 343:sc_eeprom_tool.c **** 			case CMD_UNLOCK_EEPROM:
+ 344:sc_eeprom_tool.c **** 				HWSPI_CS_LOW;
+ 345:sc_eeprom_tool.c **** 
+ 346:sc_eeprom_tool.c **** 				SPI_SendByte(PS3_SC_EEPROM_UNLOCK_CMD);
+ 347:sc_eeprom_tool.c **** 				SPI_SendByte(0);
+ 348:sc_eeprom_tool.c **** 				SPI_SendByte(0);
+ 349:sc_eeprom_tool.c **** 
+ 350:sc_eeprom_tool.c **** 				HWSPI_CS_HIGH;
+ 351:sc_eeprom_tool.c **** 				break;
+ 352:sc_eeprom_tool.c **** 
+ 353:sc_eeprom_tool.c **** 			case CMD_WRITE_EEPROM:
+ 354:sc_eeprom_tool.c **** 
+ 355:sc_eeprom_tool.c **** 				offset_high = usb_serial_getchar();
+ 638               		.loc 1 355 0
+ 639 00d6 0E94 0000 		call usb_serial_getchar
+ 640               	.LVL20:
+ 641 00da 682E      		mov r6,r24
+ 642               	.LVL21:
+ 356:sc_eeprom_tool.c **** 				offset_low = usb_serial_getchar();
+ 643               		.loc 1 356 0
+ 644 00dc 0E94 0000 		call usb_serial_getchar
+ 645               	.LVL22:
+ 646 00e0 782E      		mov r7,r24
+ 647               	.LVL23:
+ 357:sc_eeprom_tool.c **** 				write_length = usb_serial_getchar();
+ 648               		.loc 1 357 0
+ 649 00e2 0E94 0000 		call usb_serial_getchar
+ 650               	.LVL24:
+ 651 00e6 4C01      		movw r8,r24
+ 652               	.LVL25:
+ 653               	.LBB409:
+ 358:sc_eeprom_tool.c **** 
+ 359:sc_eeprom_tool.c **** 				for(uint16_t i = 0; i < write_length; i++)
+ 654               		.loc 1 359 0
+ 655 00e8 7801      		movw r14,r16
+ 656 00ea 00C0      		rjmp .L43
+ 657               	.LVL26:
+ 658               	.L23:
+ 659               	.LBE409:
+ 305:sc_eeprom_tool.c **** 				break;
+ 660               		.loc 1 305 0
+ 661 00ec 80E0      		ldi r24,0
+ 662               	.LVL27:
+ 663               	.L76:
+ 312:sc_eeprom_tool.c **** 				break;
+ 664               		.loc 1 312 0
+ 665 00ee 0E94 0000 		call usb_serial_putchar
+ 666               	.LVL28:
+ 313:sc_eeprom_tool.c **** 
+ 667               		.loc 1 313 0
+ 668 00f2 00C0      		rjmp .L19
+ 669               	.LVL29:
+ 670               	.L21:
+ 316:sc_eeprom_tool.c **** 				SPI_SendByte(PS3_SC_EEPROM_GET_STATUS_CMD);
+ 671               		.loc 1 316 0
+ 672 00f4 2898      		cbi 0x5,0
+ 673               	.LVL30:
+ 674               	.LBB410:
+ 675               	.LBB399:
+ 676               		.loc 3 245 0
+ 677 00f6 DEBC      		out 0x2e,r13
+ 678               	.L28:
+ 246:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 679               		.loc 3 246 0
+ 680 00f8 0DB4      		in __tmp_reg__,0x2d
+ 681 00fa 07FE      		sbrs __tmp_reg__,7
+ 682 00fc 00C0      		rjmp .L28
+ 683               	.LVL31:
+ 684               	.LBE399:
+ 685               	.LBE410:
+ 686               	.LBB411:
+ 687               	.LBB412:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 688               		.loc 3 245 0
+ 689 00fe 1EBC      		out 0x2e,__zero_reg__
+ 690               	.L29:
+ 691               		.loc 3 246 0
+ 692 0100 0DB4      		in __tmp_reg__,0x2d
+ 693 0102 07FE      		sbrs __tmp_reg__,7
+ 694 0104 00C0      		rjmp .L29
+ 695               	.LVL32:
+ 696               	.LBE412:
+ 697               	.LBE411:
+ 698               	.LBB413:
+ 699               	.LBB414:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 700               		.loc 3 245 0
+ 701 0106 1EBC      		out 0x2e,__zero_reg__
+ 702               	.L30:
+ 703               		.loc 3 246 0
+ 704 0108 0DB4      		in __tmp_reg__,0x2d
+ 705 010a 07FE      		sbrs __tmp_reg__,7
+ 706 010c 00C0      		rjmp .L30
+ 707               	.LVL33:
+ 708               	.LBE414:
+ 709               	.LBE413:
+ 710               	.LBB415:
+ 711               	.LBB416:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 712               		.loc 3 245 0
+ 713 010e 1EBC      		out 0x2e,__zero_reg__
+ 714               	.L31:
+ 715               		.loc 3 246 0
+ 716 0110 0DB4      		in __tmp_reg__,0x2d
+ 717 0112 07FE      		sbrs __tmp_reg__,7
+ 718 0114 00C0      		rjmp .L31
+ 719 0116 84E0      		ldi r24,lo8(4)
+ 720 0118 F82E      		mov r15,r24
+ 721               	.LVL34:
+ 722               	.L33:
+ 723               	.LBE416:
+ 724               	.LBE415:
+ 725               	.LBB417:
+ 726               	.LBB418:
+ 727               	.LBB419:
+ 247:SPI_AVR8.h    **** 			}
+ 248:SPI_AVR8.h    **** 
+ 249:SPI_AVR8.h    **** 			/** Sends a dummy byte through the SPI interface, blocking until the transfer is complete. The r
+ 250:SPI_AVR8.h    **** 			 *  byte from the attached SPI device is returned.
+ 251:SPI_AVR8.h    **** 			 *
+ 252:SPI_AVR8.h    **** 			 *  \return The response byte from the attached SPI device.
+ 253:SPI_AVR8.h    **** 			 */
+ 254:SPI_AVR8.h    **** 			static inline uint8_t SPI_ReceiveByte(void) ATTR_ALWAYS_INLINE ATTR_WARN_UNUSED_RESULT;
+ 255:SPI_AVR8.h    **** 			static inline uint8_t SPI_ReceiveByte(void)
+ 256:SPI_AVR8.h    **** 			{
+ 257:SPI_AVR8.h    **** 				SPDR = 0x00;
+ 728               		.loc 3 257 0
+ 729 011a 1EBC      		out 0x2e,__zero_reg__
+ 730               	.L32:
+ 258:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 731               		.loc 3 258 0
+ 732 011c 0DB4      		in __tmp_reg__,0x2d
+ 733 011e 07FE      		sbrs __tmp_reg__,7
+ 734 0120 00C0      		rjmp .L32
+ 259:SPI_AVR8.h    **** 				return SPDR;
+ 735               		.loc 3 259 0
+ 736 0122 8EB5      		in r24,0x2e
+ 737               	.LBE419:
+ 738               	.LBE418:
+ 323:sc_eeprom_tool.c **** 				}
+ 739               		.loc 1 323 0
+ 740 0124 0E94 0000 		call usb_serial_putchar
+ 741               	.LVL35:
+ 742 0128 FA94      		dec r15
+ 743               	.LVL36:
+ 321:sc_eeprom_tool.c **** 				{
+ 744               		.loc 1 321 0
+ 745 012a F110      		cpse r15,__zero_reg__
+ 746 012c 00C0      		rjmp .L33
+ 747 012e 00C0      		rjmp .L75
+ 748               	.LVL37:
+ 749               	.L26:
+ 750               	.LBE417:
+ 329:sc_eeprom_tool.c **** 
+ 751               		.loc 1 329 0
+ 752 0130 2898      		cbi 0x5,0
+ 753               	.LVL38:
+ 754               	.LBB420:
+ 755               	.LBB405:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 756               		.loc 3 245 0
+ 757 0132 BEBC      		out 0x2e,r11
+ 758               	.L34:
+ 246:SPI_AVR8.h    **** 			}
+ 759               		.loc 3 246 0
+ 760 0134 0DB4      		in __tmp_reg__,0x2d
+ 761 0136 07FE      		sbrs __tmp_reg__,7
+ 762 0138 00C0      		rjmp .L34
+ 763               	.LVL39:
+ 764               	.LBE405:
+ 765               	.LBE420:
+ 766               	.LBB421:
+ 767               	.LBB422:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 768               		.loc 3 245 0
+ 769 013a 1EBC      		out 0x2e,__zero_reg__
+ 770               	.L35:
+ 246:SPI_AVR8.h    **** 			}
+ 771               		.loc 3 246 0
+ 772 013c 0DB4      		in __tmp_reg__,0x2d
+ 773 013e 07FE      		sbrs __tmp_reg__,7
+ 774 0140 00C0      		rjmp .L35
+ 775               	.LVL40:
+ 776               	.LBE422:
+ 777               	.LBE421:
+ 778               	.LBB423:
+ 779               	.LBB424:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 780               		.loc 3 245 0
+ 781 0142 1EBC      		out 0x2e,__zero_reg__
+ 782               	.L36:
+ 246:SPI_AVR8.h    **** 			}
+ 783               		.loc 3 246 0
+ 784 0144 0DB4      		in __tmp_reg__,0x2d
+ 785 0146 07FE      		sbrs __tmp_reg__,7
+ 786 0148 00C0      		rjmp .L36
+ 787 014a E12C      		mov r14,__zero_reg__
+ 788 014c F12C      		mov r15,__zero_reg__
+ 789               	.LVL41:
+ 790               	.L37:
+ 791               	.LBE424:
+ 792               	.LBE423:
+ 793               	.LBB425:
+ 335:sc_eeprom_tool.c **** 				{
+ 794               		.loc 1 335 0 discriminator 1
+ 795 014e F7FC      		sbrc r15,7
+ 796 0150 00C0      		rjmp .L75
+ 797               	.LBB426:
+ 798               	.LBB427:
+ 257:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 799               		.loc 3 257 0
+ 800 0152 1EBC      		out 0x2e,__zero_reg__
+ 801               	.L38:
+ 258:SPI_AVR8.h    **** 				return SPDR;
+ 802               		.loc 3 258 0
+ 803 0154 0DB4      		in __tmp_reg__,0x2d
+ 804 0156 07FE      		sbrs __tmp_reg__,7
+ 805 0158 00C0      		rjmp .L38
+ 806               		.loc 3 259 0
+ 807 015a 8EB5      		in r24,0x2e
+ 808               	.LBE427:
+ 809               	.LBE426:
+ 337:sc_eeprom_tool.c **** 				}
+ 810               		.loc 1 337 0
+ 811 015c 0E94 0000 		call usb_serial_putchar
+ 812               	.LVL42:
+ 335:sc_eeprom_tool.c **** 				{
+ 813               		.loc 1 335 0
+ 814 0160 8FEF      		ldi r24,-1
+ 815 0162 E81A      		sub r14,r24
+ 816 0164 F80A      		sbc r15,r24
+ 817               	.LVL43:
+ 818 0166 00C0      		rjmp .L37
+ 819               	.LVL44:
+ 820               	.L25:
+ 821               	.LBE425:
+ 344:sc_eeprom_tool.c **** 
+ 822               		.loc 1 344 0
+ 823 0168 2898      		cbi 0x5,0
+ 824               	.LVL45:
+ 825               	.LBB428:
+ 826               	.LBB402:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 827               		.loc 3 245 0
+ 828 016a CEBC      		out 0x2e,r12
+ 829               	.L40:
+ 246:SPI_AVR8.h    **** 			}
+ 830               		.loc 3 246 0
+ 831 016c 0DB4      		in __tmp_reg__,0x2d
+ 832 016e 07FE      		sbrs __tmp_reg__,7
+ 833 0170 00C0      		rjmp .L40
+ 834               	.LVL46:
+ 835               	.LBE402:
+ 836               	.LBE428:
+ 837               	.LBB429:
+ 838               	.LBB430:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 839               		.loc 3 245 0
+ 840 0172 1EBC      		out 0x2e,__zero_reg__
+ 841               	.L41:
+ 246:SPI_AVR8.h    **** 			}
+ 842               		.loc 3 246 0
+ 843 0174 0DB4      		in __tmp_reg__,0x2d
+ 844 0176 07FE      		sbrs __tmp_reg__,7
+ 845 0178 00C0      		rjmp .L41
+ 846               	.LVL47:
+ 847               	.LBE430:
+ 848               	.LBE429:
+ 849               	.LBB431:
+ 850               	.LBB432:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 851               		.loc 3 245 0
+ 852 017a 1EBC      		out 0x2e,__zero_reg__
+ 853               	.L42:
+ 246:SPI_AVR8.h    **** 			}
+ 854               		.loc 3 246 0
+ 855 017c 0DB4      		in __tmp_reg__,0x2d
+ 856 017e 07FE      		sbrs __tmp_reg__,7
+ 857 0180 00C0      		rjmp .L42
+ 858 0182 00C0      		rjmp .L75
+ 859               	.LVL48:
+ 860               	.L43:
+ 861 0184 C701      		movw r24,r14
+ 862 0186 801B      		sub r24,r16
+ 863 0188 910B      		sbc r25,r17
+ 864               	.LBE432:
+ 865               	.LBE431:
+ 866               	.LBB433:
+ 867               		.loc 1 359 0 discriminator 1
+ 868 018a 8815      		cp r24,r8
+ 869 018c 9905      		cpc r25,r9
+ 870 018e 00F4      		brsh .L77
+ 360:sc_eeprom_tool.c **** 				{
+ 361:sc_eeprom_tool.c **** 					write_buffer[i] = usb_serial_getchar();
+ 871               		.loc 1 361 0 discriminator 3
+ 872 0190 0E94 0000 		call usb_serial_getchar
+ 873               	.LVL49:
+ 874 0194 F701      		movw r30,r14
+ 875 0196 8193      		st Z+,r24
+ 876 0198 7F01      		movw r14,r30
+ 877 019a 00C0      		rjmp .L43
+ 878               	.L77:
+ 879               	.LBE433:
+ 362:sc_eeprom_tool.c **** 				}
+ 363:sc_eeprom_tool.c **** 
+ 364:sc_eeprom_tool.c **** 
+ 365:sc_eeprom_tool.c **** 				HWSPI_CS_LOW;
+ 880               		.loc 1 365 0
+ 881 019c 2898      		cbi 0x5,0
+ 882               	.LVL50:
+ 883               	.LBB434:
+ 884               	.LBB408:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 885               		.loc 3 245 0
+ 886 019e AEBC      		out 0x2e,r10
+ 887               	.L45:
+ 246:SPI_AVR8.h    **** 			}
+ 888               		.loc 3 246 0
+ 889 01a0 0DB4      		in __tmp_reg__,0x2d
+ 890 01a2 07FE      		sbrs __tmp_reg__,7
+ 891 01a4 00C0      		rjmp .L45
+ 892               	.LVL51:
+ 893               	.LBE408:
+ 894               	.LBE434:
+ 895               	.LBB435:
+ 896               	.LBB436:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 897               		.loc 3 245 0
+ 898 01a6 6EBC      		out 0x2e,r6
+ 899               	.L46:
+ 246:SPI_AVR8.h    **** 			}
+ 900               		.loc 3 246 0
+ 901 01a8 0DB4      		in __tmp_reg__,0x2d
+ 902 01aa 07FE      		sbrs __tmp_reg__,7
+ 903 01ac 00C0      		rjmp .L46
+ 904               	.LVL52:
+ 905               	.LBE436:
+ 906               	.LBE435:
+ 907               	.LBB437:
+ 908               	.LBB438:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 909               		.loc 3 245 0
+ 910 01ae 7EBC      		out 0x2e,r7
+ 911               	.L47:
+ 246:SPI_AVR8.h    **** 			}
+ 912               		.loc 3 246 0
+ 913 01b0 0DB4      		in __tmp_reg__,0x2d
+ 914 01b2 07FE      		sbrs __tmp_reg__,7
+ 915 01b4 00C0      		rjmp .L47
+ 916 01b6 F801      		movw r30,r16
+ 917               	.L48:
+ 918 01b8 CF01      		movw r24,r30
+ 919 01ba 801B      		sub r24,r16
+ 920 01bc 910B      		sbc r25,r17
+ 921               	.LBE438:
+ 922               	.LBE437:
+ 923               	.LBB439:
+ 366:sc_eeprom_tool.c **** 
+ 367:sc_eeprom_tool.c **** 				SPI_SendByte(PS3_SC_EEPROM_WRITE_CMD);
+ 368:sc_eeprom_tool.c **** 				SPI_SendByte(offset_high);
+ 369:sc_eeprom_tool.c **** 				SPI_SendByte(offset_low);
+ 370:sc_eeprom_tool.c **** 
+ 371:sc_eeprom_tool.c **** 				for(uint16_t i = 0; i < write_length; i++)
+ 924               		.loc 1 371 0 discriminator 1
+ 925 01be 8815      		cp r24,r8
+ 926 01c0 9905      		cpc r25,r9
+ 927 01c2 00F4      		brsh .L75
+ 372:sc_eeprom_tool.c **** 				{
+ 373:sc_eeprom_tool.c **** 					SPI_SendByte(write_buffer[i]);
+ 928               		.loc 1 373 0 discriminator 3
+ 929 01c4 8191      		ld r24,Z+
+ 930               	.LVL53:
+ 931               	.LBB440:
+ 932               	.LBB441:
+ 245:SPI_AVR8.h    **** 				while (!(SPSR & (1 << SPIF)));
+ 933               		.loc 3 245 0 discriminator 3
+ 934 01c6 8EBD      		out 0x2e,r24
+ 935               	.L49:
+ 246:SPI_AVR8.h    **** 			}
+ 936               		.loc 3 246 0
+ 937 01c8 0DB4      		in __tmp_reg__,0x2d
+ 938 01ca 07FE      		sbrs __tmp_reg__,7
+ 939 01cc 00C0      		rjmp .L49
+ 940 01ce 00C0      		rjmp .L48
+ 941               	.LVL54:
+ 942               	.L75:
+ 943               	.LBE441:
+ 944               	.LBE440:
+ 945               	.LBE439:
+ 374:sc_eeprom_tool.c **** 				}
+ 375:sc_eeprom_tool.c **** 
+ 376:sc_eeprom_tool.c **** 
+ 377:sc_eeprom_tool.c **** 				HWSPI_CS_HIGH;
+ 946               		.loc 1 377 0
+ 947 01d0 289A      		sbi 0x5,0
+ 378:sc_eeprom_tool.c **** 				break;
+ 948               		.loc 1 378 0
+ 949 01d2 00C0      		rjmp .L19
+ 950               		.cfi_endproc
+ 951               	.LFE30:
+ 953               		.comm	cmd_t,1,1
+ 954               		.text
+ 955               	.Letext0:
+ 956               		.file 4 "/usr/lib/avr/include/stdint.h"
+ 957               		.file 5 "usb_serial.h"
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 sc_eeprom_tool.c
+     /tmp/ccJ3RP8T.s:2      *ABS*:000000000000003e __SP_H__
+     /tmp/ccJ3RP8T.s:3      *ABS*:000000000000003d __SP_L__
+     /tmp/ccJ3RP8T.s:4      *ABS*:000000000000003f __SREG__
+     /tmp/ccJ3RP8T.s:5      *ABS*:000000000000003b __RAMPZ__
+     /tmp/ccJ3RP8T.s:6      *ABS*:0000000000000000 __tmp_reg__
+     /tmp/ccJ3RP8T.s:7      *ABS*:0000000000000001 __zero_reg__
+     /tmp/ccJ3RP8T.s:14     .text.hwspi_init:0000000000000000 hwspi_init
+     /tmp/ccJ3RP8T.s:40     .text.spi_enable:0000000000000000 spi_enable
+     /tmp/ccJ3RP8T.s:74     .text.releaseports:0000000000000000 releaseports
+     /tmp/ccJ3RP8T.s:103    .text.wait_ryby:0000000000000000 wait_ryby
+     /tmp/ccJ3RP8T.s:182    .text.spi_reset:0000000000000000 spi_reset
+     /tmp/ccJ3RP8T.s:254    .text.bootloader:0000000000000000 bootloader
+     /tmp/ccJ3RP8T.s:371    .text.freeRam:0000000000000000 freeRam
+     /tmp/ccJ3RP8T.s:421    .text.startup.main:0000000000000000 main
+                            *COM*:0000000000000001 cmd_t
+
+UNDEFINED SYMBOLS
+__brkval
+__heap_start
+usb_init
+usb_configured
+usb_serial_flush_input
+usb_serial_getchar
+usb_serial_putchar
+__do_clear_bss
