@@ -17,7 +17,7 @@ class TeensySerial(object):
 	BUFSIZE = 32768
 
 	def __init__(self, port):
-		self.ser = serial.Serial(port, 9600, timeout=300, rtscts=False, dsrdtr=False, xonxoff=False, writeTimeout=120)
+		self.ser = serial.Serial(port, 9600, timeout=300, rtscts=False, dsrdtr=False, xonxoff=False, write_timeout=120)
 		if self.ser is None:
 			raise TeensySerialError("could not open serial %s")%port
 		self.ser.flushInput()
@@ -80,7 +80,7 @@ class SPIFlasher(TeensySerial):
 	CMD_DUMP_EEPROM = 3
 	CMD_UNLOCK_EEPROM = 4
 	CMD_WRITE_EEPROM = 5
-	
+
 	def __init__(self, port, ver_major, ver_minor):
 		if port:
 			TeensySerial.__init__(self, port)
@@ -110,7 +110,7 @@ class SPIFlasher(TeensySerial):
 		print
 
 		status = struct.unpack('>L', bytes)
-		sys.stdout.flush()	
+		sys.stdout.flush()
 
 		print hex(status[0])
 		if(status[0] == 0xffffffff):
@@ -126,14 +126,14 @@ class SPIFlasher(TeensySerial):
 		status = 1
 		while status:
 			status = self.get_status_eeprom()
-			#time.sleep(10)
-			
+			time.sleep(5)
+
 		self.write(self.CMD_DUMP_EEPROM)
-		 
+
 		fo = open(filename,"wb")
 		data = self.read(0x8000)
 		fo.write(data)
-		sys.stdout.flush()	
+		sys.stdout.flush()
 		return 0
 
 
@@ -143,7 +143,7 @@ class SPIFlasher(TeensySerial):
 		data_array = bytearray.fromhex(data)
 		offset = int(offset, 16)
 		size = int(len(data_array))
-		
+
 		if(offset >= 0x8000):
 			print "out of range!"
 			return 1
@@ -151,32 +151,32 @@ class SPIFlasher(TeensySerial):
 		if(size+offset >= 0x8000):
 			print "size to large!"
 			return 1
-	
+
 		status = 1
 		while status:
 			status = self.get_status_eeprom()
-	#		time.sleep(10)
-			
+		time.sleep(5)
+
 		self.unlock_eeprom()
 
 		blocks = (size/32)
 		if (size%32) > 0:
 			blocks = blocks + 1
-				
+
 		for x in range(0,int(blocks)):
 			if (x == int(blocks)-1) and (size%32) > 0:
 				indexed_offset = offset + (32 * x)
-				
+
 				self.write(self.CMD_WRITE_EEPROM)
 				self.write((indexed_offset >> 8) & 0xff)
 				self.write(indexed_offset & 0xff)
 				self.write(size%32)
 
-				self.write(data_array[x*32:(x*32)+(size%32)])				
-			
+				self.write(data_array[x*32:(x*32)+(size%32)])
+
 			else:
 				indexed_offset = offset + (32 * x)
-				
+
 				self.write(self.CMD_WRITE_EEPROM)
 				self.write((indexed_offset >> 8) & 0xff)
 				self.write(indexed_offset & 0xff)
@@ -184,54 +184,54 @@ class SPIFlasher(TeensySerial):
 
 				self.write(data_array[x*32:(x*32)+32])
 
-			sys.stdout.flush()	
-	
-	
+			sys.stdout.flush()
+
+
 		return 0
 
 	def write_eeprom_file(self,filename, offset, size):
 
 		offset = int(offset, 16)
 		size = int(size,16)
-	
+
 		if(offset >= 0x8000):
 			print "out of range!"
 			return 1
-	
+
 		if(size+offset >= 0x8000):
 			print "size to large!"
 			return 1
 
-	
+
 		status = 1
 		while status:
 			status = self.get_status_eeprom()
-	#		time.sleep(10)
-			
-		self.unlock_eeprom()	
-		
+		time.sleep(5)
+
+		self.unlock_eeprom()
+
 
 		blocks = (size/32)
 		if (size%32) > 0:
 			blocks = blocks + 1
-		
+
 		file = open(filename,"rb")
 		data = file.read()
-		
+
 		for x in range(0,int(blocks)):
 			if (x == int(blocks)-1) and (size%32) > 0:
 				indexed_offset = offset + (32 * x)
-				
+
 				self.write(self.CMD_WRITE_EEPROM)
 				self.write((indexed_offset >> 8) & 0xff)
 				self.write(indexed_offset & 0xff)
 				self.write(size%32)
 
-				self.write(data[x*32:x*32+(size%32)])				
-			
+				self.write(data[x*32:x*32+(size%32)])
+
 			else:
 				indexed_offset = offset + (32 * x)
-				
+
 				self.write(self.CMD_WRITE_EEPROM)
 				self.write((indexed_offset >> 8) & 0xff)
 				self.write(indexed_offset & 0xff)
@@ -239,15 +239,15 @@ class SPIFlasher(TeensySerial):
 
 				self.write(data[x*32:(x*32)+32])
 
-			sys.stdout.flush()	
+			sys.stdout.flush()
 		file.close()
 		return 0
 
 	def unlock_eeprom(self):
 		self.write(self.CMD_UNLOCK_EEPROM)
-		
+
 		print "EEPROM Unlocked"
-		sys.stdout.flush()	
+		sys.stdout.flush()
 		return 0
 
 
@@ -272,10 +272,10 @@ if __name__ == "__main__":
 		print "					sc_eeprom_tool.py COM1 writedata <data> <offset>"
 		print "		unlock: unlocks eeprom for writing"
 		print "Examples:"
-		print "  sc_eeprom_tool.py COM1 dump ./myeeprom.bin"		
-		print "  sc_eeprom_tool.py COM1 status"		
-		print "  sc_eeprom_tool.py COM1 writefile dump.bin 0 0x3fff"		
-		print "  sc_eeprom_tool.py COM1 writedata 99d9662bb3d761 0"		
+		print "  sc_eeprom_tool.py COM1 dump ./myeeprom.bin"
+		print "  sc_eeprom_tool.py COM1 status"
+		print "  sc_eeprom_tool.py COM1 writefile dump.bin 0 0x3fff"
+		print "  sc_eeprom_tool.py COM1 writedata 99d9662bb3d761 0"
 
 		sys.exit(0)
 
@@ -284,9 +284,9 @@ if __name__ == "__main__":
 	freeram = n.ping()
 	print "Available memory: %d bytes"%(freeram)
 	print
-	
+
 	tStart = time.time()
-	
+
 	if len(sys.argv) == 4 and sys.argv[2] == "dump":
 		print "Dumping eeprom..."
 		n.dump_eeprom(sys.argv[3])
