@@ -31,7 +31,7 @@ pinout/syscon-cxr203GB-eeprompins.jpg
 
 ## Example of using the python script tool - `sc_eeprom_tool.py`
 
-`python sc_eeprom_tool.py /dev/ttyACM0 status` - Show status of eeprom`
+`python sc_eeprom_tool.py /dev/ttyACM0 status` - Show status of eeprom
 
 `python sc_eeprom_tool.py /dev/ttyACM0 dump sem-001eeprom.bin` - Dump syscon eeprom from SEM-001 board
 
